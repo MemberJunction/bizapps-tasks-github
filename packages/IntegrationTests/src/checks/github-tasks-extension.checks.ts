@@ -36,6 +36,12 @@ import {
     TASKS_ENTITY_NAME,
 } from '@mj-biz-apps/tasks-github-core';
 
+interface TaskTypeExtensionRow {
+    ID: string;
+    Code: string;
+    ExtensionEntity: string | null;
+}
+
 const BUNDLE_NAME = 'github-tasks-extension';
 
 const checks: NamedCheck[] = [
@@ -89,7 +95,7 @@ const checks: NamedCheck[] = [
                 },
             ], ctx.User);
 
-            const taskTypes = (typesRes?.Results as mjBizAppsTasksTaskTypeEntity[] | undefined) ?? [];
+            const taskTypes = (typesRes?.Results as TaskTypeExtensionRow[] | undefined) ?? [];
             AssertEqual(taskTypes.length, 2, 'Both GITHUB_ISSUE and GITHUB_PR TaskTypes exist');
 
             const issueType = taskTypes.find((t) => t.Code === 'GITHUB_ISSUE')!;
