@@ -1,0 +1,43 @@
+{
+  "name": "@mj-biz-apps/tasks-github-entities",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "BizApps Tasks GitHub Extension Entity Subclasses",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "/dist"
+  ],
+  "scripts": {
+    "build": "tsc && tsc-alias -f",
+    "test": "vitest run"
+  },
+  "author": "MemberJunction.com",
+  "license": "BUSL-1.1",
+  "devDependencies": {
+    "@memberjunction/core": "6.2.1",
+    "@memberjunction/core-entities": "6.2.1",
+    "@memberjunction/global": "6.2.1",
+    "@mj-biz-apps/common-entities": "5.62.0",
+    "@mj-biz-apps/tasks-entities": "1.10.0",
+    "typescript": "^5.9.3",
+    "vitest": "1.6.1"
+  },
+  "dependencies": {
+    "zod": "^3.25.28"
+  },
+  "peerDependencies": {
+    "@memberjunction/core": "^6.2.1",
+    "@memberjunction/core-entities": "^6.2.1",
+    "@memberjunction/global": "^6.2.1",
+    "@mj-biz-apps/common-entities": "^5.62.0",
+    "@mj-biz-apps/tasks-entities": "^1.10.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MemberJunction/bizapps-tasks-github"
+  }
+}

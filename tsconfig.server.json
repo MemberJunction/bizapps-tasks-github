@@ -13,7 +13,6 @@
     "allowSyntheticDefaultImports": true,
     "emitDecoratorMetadata": true,
     "skipLibCheck": true,
-    "types": [],
     "useDefineForClassFields": false
   },
   "exclude": [

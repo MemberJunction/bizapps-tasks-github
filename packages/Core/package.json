@@ -1,0 +1,50 @@
+{
+  "name": "@mj-biz-apps/tasks-github-core",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "BizApps Tasks GitHub Extension Core Services - GitHubTaskSyncService, GitHubWebhookService, GitHubTaskInferenceService, GitHubFieldOwnershipPolicy",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "/dist"
+  ],
+  "scripts": {
+    "build": "tsc && tsc-alias -f",
+    "test": "vitest run"
+  },
+  "author": "MemberJunction.com",
+  "license": "BUSL-1.1",
+  "devDependencies": {
+    "@memberjunction/ai-core-plus": "6.2.1",
+    "@memberjunction/ai-engine-base": "6.2.1",
+    "@memberjunction/ai-prompts": "6.2.1",
+    "@memberjunction/core": "6.2.1",
+    "@memberjunction/core-entities": "6.2.1",
+    "@memberjunction/global": "6.2.1",
+    "@mj-biz-apps/common-entities": "5.62.0",
+    "@mj-biz-apps/tasks-entities": "1.10.0",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.9.3",
+    "vitest": "1.6.1"
+  },
+  "dependencies": {
+    "@mj-biz-apps/tasks-github-entities": "^1.0.0"
+  },
+  "peerDependencies": {
+    "@memberjunction/ai-core-plus": "^6.2.1",
+    "@memberjunction/ai-engine-base": "^6.2.1",
+    "@memberjunction/ai-prompts": "^6.2.1",
+    "@memberjunction/core": "^6.2.1",
+    "@memberjunction/core-entities": "^6.2.1",
+    "@memberjunction/global": "^6.2.1",
+    "@mj-biz-apps/common-entities": "^5.62.0",
+    "@mj-biz-apps/tasks-entities": "^1.10.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MemberJunction/bizapps-tasks-github"
+  }
+}
