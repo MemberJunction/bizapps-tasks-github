@@ -1,0 +1,17 @@
+{
+  "entity": "MJ: AI Skills",
+  "filePattern": "**/.*.json",
+  "ignoreDirectories": [
+    "templates"
+  ],
+  "relatedEntities": {
+    "MJ: AI Agent Skills": {
+      "entity": "MJ: AI Agent Skills",
+      "foreignKey": "SkillID"
+    },
+    "MJ: AI Skill Actions": {
+      "entity": "MJ: AI Skill Actions",
+      "foreignKey": "SkillID"
+    }
+  }
+}

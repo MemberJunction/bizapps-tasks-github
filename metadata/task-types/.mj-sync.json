@@ -1,0 +1,10 @@
+{
+  "entity": "MJ_BizApps_Tasks: Task Types",
+  "filePattern": "**/.*.json",
+  "relatedEntities": {
+    "MJ_BizApps_Tasks: Task Type Status": {
+      "entity": "MJ_BizApps_Tasks: Task Type Status",
+      "foreignKey": "TaskTypeID"
+    }
+  }
+}

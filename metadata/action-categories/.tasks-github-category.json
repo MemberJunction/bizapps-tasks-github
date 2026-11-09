@@ -1,0 +1,17 @@
+[
+  {
+    "fields": {
+      "Name": "Tasks GitHub",
+      "Description": "GitHub Issue and Pull Request synchronization, webhook ingestion, and planning field inference actions for BizApps Tasks.",
+      "ParentID": "@lookup:MJ: Action Categories.Name=Tasks",
+      "Status": "Active"
+    },
+    "primaryKey": {
+      "ID": "A1B2C3D4-1109-4A11-9B01-000000000001"
+    },
+    "sync": {
+      "lastModified": "2026-11-09T23:04:43.674Z",
+      "checksum": "a23dd0f35f17034be74a6376e80facb048cb63b4814e8d3ab13e6e5874d4f022"
+    }
+  }
+]

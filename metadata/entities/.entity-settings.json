@@ -1,0 +1,30 @@
+[
+  {
+    "primaryKey": {
+      "ID": "@lookup:MJ: Entities.Name=MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks"
+    },
+    "fields": {
+      "Configuration": "{\"Comments\": {\"Enabled\": true, \"AllowedCommentTypes\": [\"COMMENT\", \"FIELD_SUGGESTION\"]}}",
+      "AllowUserSearchAPI": true,
+      "AutoUpdateAllowUserSearchAPI": false
+    },
+    "sync": {
+      "lastModified": "2026-11-09T23:04:40.781Z",
+      "checksum": "f7f3e39bb5d08db45c5c7b01bcbff0f7b9e035f51c25c81a12b959d8ed79a5bb"
+    }
+  },
+  {
+    "primaryKey": {
+      "ID": "@lookup:MJ: Entities.Name=MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks"
+    },
+    "fields": {
+      "Configuration": "{\"Comments\": {\"Enabled\": true, \"AllowedCommentTypes\": [\"COMMENT\", \"FIELD_SUGGESTION\"]}}",
+      "AllowUserSearchAPI": true,
+      "AutoUpdateAllowUserSearchAPI": false
+    },
+    "sync": {
+      "lastModified": "2026-11-09T23:04:40.795Z",
+      "checksum": "f7f3e39bb5d08db45c5c7b01bcbff0f7b9e035f51c25c81a12b959d8ed79a5bb"
+    }
+  }
+]

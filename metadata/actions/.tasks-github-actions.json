@@ -1,0 +1,473 @@
+[
+  {
+    "fields": {
+      "Name": "Sync GitHub Repository Tasks",
+      "CategoryID": "@lookup:MJ: Action Categories.Name=Tasks GitHub",
+      "Description": "Idempotently synchronizes GitHub Issues and Pull Requests for one or all tracked GitHubRepository rows into MJ_BizApps_Tasks: Tasks and their IS-A extension tables, enforcing ImportRule (AssignedOnly vs All), pull-only field ownership, Primary/Reviewer TaskAssignment mapping via GitHubIdentity, milestone due-date superseding, and Field Suggestion inference.",
+      "Type": "Custom",
+      "DriverClass": "TasksGitHub.SyncRepositoryTasks",
+      "IconClass": "fa-brands fa-github",
+      "UserPrompt": "Sync GitHub issues and pull requests into BizApps Tasks.",
+      "CodeApprovalStatus": "Approved",
+      "Status": "Active"
+    },
+    "primaryKey": {
+      "ID": "A1B2C3D4-1109-4A11-9B02-000000000001"
+    },
+    "relatedEntities": {
+      "MJ: Action Params": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "RepositoryID",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Optional GitHubRepository ID. When omitted, all tracked repositories (IsTracked = 1) are synchronized."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B02-000000000101"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.135Z",
+            "checksum": "b2d9188e68a51330c087b4d7b94f9e1629cbf3113fe8bfbc145fb04ac7b9574c"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "ItemsJSON",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Optional JSON array of normalized GitHub issues/PRs supplied by the MJ 6.3 GitHub connector or tests."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B02-000000000102"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.156Z",
+            "checksum": "85885470eb9948c67b4abe5a64861a78eddd86fe26105b2289990ad6ebf39848"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "RunInference",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Whether to run planning Field Suggestion inference on newly created or body-updated items (default true)."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B02-000000000103"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.176Z",
+            "checksum": "f8ad2bef2ac7ae31aed656b88c4e8870ab0c80607ed26fc3a7641de62c749ac6"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "SummaryJSON",
+            "Type": "Output",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "JSON summary with counts of imported, updated, skipped, and inferred items."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B02-000000000104"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.195Z",
+            "checksum": "c25da92149d8eca42ea177a878fd1b4237ec3e516ce9e003d9b7c6649d5c5c2e"
+          }
+        }
+      ],
+      "MJ: Action Result Codes": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "SUCCESS",
+            "IsSuccess": true,
+            "Description": "Synchronization completed successfully."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B02-000000000201"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.228Z",
+            "checksum": "d121c41f26c124761540cfcc441a6971841e84148f130a6bf364d1dfab46430b"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "NOT_FOUND",
+            "IsSuccess": false,
+            "Description": "The requested RepositoryID was not found."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B02-000000000202"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.240Z",
+            "checksum": "2961e3b6bc935e12dc5d82afa2c2a6a46bab73660a086d2936ad1d744ce6a5ea"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "VALIDATION_ERROR",
+            "IsSuccess": false,
+            "Description": "Invalid input parameters."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B02-000000000203"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.253Z",
+            "checksum": "e78379049a3f8ae83f1f8d20e54b7e87d48f2f9d476ed7954af4307a448fc742"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "FAILED",
+            "IsSuccess": false,
+            "Description": "Unexpected synchronization error."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B02-000000000204"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.266Z",
+            "checksum": "7de08317256d483301fbcd7a43e0f553324a1ecc37240a15916c1c05927a5652"
+          }
+        }
+      ]
+    },
+    "sync": {
+      "lastModified": "2026-11-09T23:04:44.019Z",
+      "checksum": "8b7f22513324aa69a56decbfd4ab7a2e7a10fe74117797c3ac7ff2c62ee18c79"
+    }
+  },
+  {
+    "fields": {
+      "Name": "Handle GitHub Tasks Webhook",
+      "CategoryID": "@lookup:MJ: Action Categories.Name=Tasks GitHub",
+      "Description": "Verifies GitHub X-Hub-Signature-256 HMAC-SHA256 signatures and immediately synchronizes the single affected issue or pull request for issues, pull_request, and pull_request_review events.",
+      "Type": "Custom",
+      "DriverClass": "TasksGitHub.HandleWebhook",
+      "IconClass": "fa-solid fa-satellite-dish",
+      "UserPrompt": "Process a signed GitHub webhook delivery for Tasks.",
+      "CodeApprovalStatus": "Approved",
+      "Status": "Active"
+    },
+    "primaryKey": {
+      "ID": "A1B2C3D4-1109-4A11-9B03-000000000001"
+    },
+    "relatedEntities": {
+      "MJ: Action Params": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "EventName",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": true,
+            "Description": "X-GitHub-Event header value (issues, pull_request, pull_request_review)."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B03-000000000101"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.287Z",
+            "checksum": "d5804e1da4e169472c2d55506bbd582fcf16e87328664e65e3094c3b4485696d"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "DeliveryID",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "X-GitHub-Delivery unique UUID."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B03-000000000102"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.306Z",
+            "checksum": "92e266ac1f0910ddb98f0dff872c7722fe0c84516dd037c71d96e44fb4684446"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "SignatureHeader",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": true,
+            "Description": "X-Hub-Signature-256 header value (sha256=<hex>)."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B03-000000000103"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.325Z",
+            "checksum": "9be37bc233d8970967c4a285a284748109d6e2d014ec6555baeac70fd2c19d19"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "RawPayload",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": true,
+            "Description": "Unmodified UTF-8 JSON body of the webhook delivery."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B03-000000000104"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.344Z",
+            "checksum": "c07da046eabfa5edac84628d799d8596f701484ee0ae3a8cbd4759c0ff3aeb35"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "TaskID",
+            "Type": "Output",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "ID of the synchronized Task when imported or updated."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B03-000000000105"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.363Z",
+            "checksum": "6a818143fea0ca4194ac1d516a3172703fb194e9c971dd95e28a22b89518d991"
+          }
+        }
+      ],
+      "MJ: Action Result Codes": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "SUCCESS",
+            "IsSuccess": true,
+            "Description": "Webhook verified and item synchronized."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B03-000000000201"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.374Z",
+            "checksum": "fc725b4c3cc81e73b8df8798bd15d1b8ffb44b9274303b2c628253f11f793db6"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "IGNORED",
+            "IsSuccess": true,
+            "Description": "Webhook verified; event or repository is untracked or filtered out by ImportRule."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B03-000000000202"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.384Z",
+            "checksum": "2a990a6c7e6b29b31e064c1c07b44868e66df78d8a0a6d84819b1be358058c20"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "INVALID_SIGNATURE",
+            "IsSuccess": false,
+            "Description": "Webhook HMAC-SHA256 verification failed."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B03-000000000203"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.395Z",
+            "checksum": "2f752e5fdfd1171839ec292d41fa7d9976bfe05f58e27e75a99465b2ea677849"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "VALIDATION_ERROR",
+            "IsSuccess": false,
+            "Description": "Missing required webhook parameters or malformed JSON."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B03-000000000204"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.406Z",
+            "checksum": "85b31bd352448d00c8a23d5f84abaa221c0a0d7dcc3df949381ee58ba43c4cdb"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "FAILED",
+            "IsSuccess": false,
+            "Description": "Unexpected webhook processing failure."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B03-000000000205"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.416Z",
+            "checksum": "0d843b857e2338ca5522a9318234142187b31fc238bb59b2dba640ac6db06c8c"
+          }
+        }
+      ]
+    },
+    "sync": {
+      "lastModified": "2026-11-09T23:04:44.063Z",
+      "checksum": "11a62769c5c5afaf2d321b7267f9de17cff3cc2d4fba1e3b2c9e4ab0ea8bbf4f"
+    }
+  },
+  {
+    "fields": {
+      "Name": "Infer GitHub Task Planning Fields",
+      "CategoryID": "@lookup:MJ: Action Categories.Name=Tasks GitHub",
+      "Description": "Runs planning-field inference on a GitHub Issue or Pull Request Task, proposing MJ: Field Suggestions strictly for Tasks-owned fields (DueAt, HoursEstimated, ParentID, Priority, CategoryID) without ever overwriting GitHub-owned or structured fields.",
+      "Type": "Custom",
+      "DriverClass": "TasksGitHub.InferTaskFields",
+      "IconClass": "fa-solid fa-wand-magic-sparkles",
+      "UserPrompt": "Infer planning Field Suggestions for a GitHub task.",
+      "CodeApprovalStatus": "Approved",
+      "Status": "Active"
+    },
+    "primaryKey": {
+      "ID": "A1B2C3D4-1109-4A11-9B04-000000000001"
+    },
+    "relatedEntities": {
+      "MJ: Action Params": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "TaskID",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": true,
+            "Description": "ID of the GITHUB_ISSUE or GITHUB_PR Task."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B04-000000000101"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.437Z",
+            "checksum": "b17426572fa2f25c89e54bc8189733ea36563be0e487fb427d0863765fcd7629"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "SuggestionsCount",
+            "Type": "Output",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Number of MJ: Field Suggestions created."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B04-000000000102"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.457Z",
+            "checksum": "ff00cd3fa1b49b8d5a64ad64966ffc1dd3c4787475d364bd28a2aff3e40fcdcd"
+          }
+        }
+      ],
+      "MJ: Action Result Codes": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "SUCCESS",
+            "IsSuccess": true,
+            "Description": "Inference completed and Field Suggestions created."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B04-000000000201"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.468Z",
+            "checksum": "378964e6718717d9a2773e2362267cba50f0ab9106bce318989d1c5e87f7488e"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "SKIPPED",
+            "IsSuccess": true,
+            "Description": "No eligible Tasks-owned planning suggestions to propose."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B04-000000000202"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.478Z",
+            "checksum": "c76f48e2e17101c755258052e972810d79c5026cb3c90868ffe7a85b71179a4a"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "NOT_FOUND",
+            "IsSuccess": false,
+            "Description": "Task was not found."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B04-000000000203"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.489Z",
+            "checksum": "14a6af154a50de7d480bf36096fc1885fa4f13416fb45c7e18a0b6b39e2cb4a8"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "FAILED",
+            "IsSuccess": false,
+            "Description": "Inference failed."
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B04-000000000204"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:44.500Z",
+            "checksum": "55d54d7ddf2401c408f09f2ac816bf5d6c7edeb03fc258266df3961a53ceef03"
+          }
+        }
+      ]
+    },
+    "sync": {
+      "lastModified": "2026-11-09T23:04:44.089Z",
+      "checksum": "0386fb2818e3c871a03c27bef121db789235b9a557b8cc65215ccedbc12549af"
+    }
+  }
+]

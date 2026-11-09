@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.memberjunction.org/codegen-schema-info/v1.json",
+  "description": "Additional schema info consumed by `mj codegen` (CodeGenLib additionalSchemaInfo). Declares IS-A (Table-Per-Type) inheritance relationships from GitHubIssueTask and GitHubPullRequestTask to MJ_BizApps_Tasks: Tasks so CodeGen sets __mj.Entity.ParentID, mirrors inherited Task fields as virtual fields on the child entities, JOINs __mj_BizAppsTasks.Task in child base views, and generates entity subclasses extending mjBizAppsTasksTaskEntity.",
+  "ISARelationships": [
+    {
+      "_comment": "GitHubIssueTask IS-A Task (Table-Per-Type): GitHubIssueTask.ID PK is also an FK to __mj_BizAppsTasks.Task.ID.",
+      "ChildEntity": "MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks",
+      "ParentEntity": "MJ_BizApps_Tasks: Tasks"
+    },
+    {
+      "_comment": "GitHubPullRequestTask IS-A Task (Table-Per-Type): GitHubPullRequestTask.ID PK is also an FK to __mj_BizAppsTasks.Task.ID.",
+      "ChildEntity": "MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks",
+      "ParentEntity": "MJ_BizApps_Tasks: Tasks"
+    }
+  ],
+  "Entities": [
+    {
+      "BaseTable": "GitHubIssueTask",
+      "SchemaName": "__mj_BizAppsTasksGitHub",
+      "Configuration": "{\"Comments\": {\"Enabled\": true, \"AllowedCommentTypes\": [\"COMMENT\", \"FIELD_SUGGESTION\"]}}"
+    },
+    {
+      "BaseTable": "GitHubPullRequestTask",
+      "SchemaName": "__mj_BizAppsTasksGitHub",
+      "Configuration": "{\"Comments\": {\"Enabled\": true, \"AllowedCommentTypes\": [\"COMMENT\", \"FIELD_SUGGESTION\"]}}"
+    }
+  ]
+}

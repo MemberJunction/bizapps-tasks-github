@@ -1,0 +1,80 @@
+[
+  {
+    "fields": {
+      "Name": "GitHub Tasks & Pull Requests",
+      "Description": "Synchronizes GitHub Issues and Pull Requests with BizApps Tasks, respects pull-only GitHub field ownership vs Tasks planning fields, manages Field Suggestions, and wraps MemberJunction 6.3 GitHub repository, issue, pull-request, review, merge, and workflow actions for Chief of Staff and Software Factory agents.",
+      "Instructions": "@file:templates/github-tasks.skill.md",
+      "Status": "Active",
+      "ActivationMode": "Auto",
+      "Category": "Engineering",
+      "IconClass": "fa-brands fa-github",
+      "CreatedByUserID": "@lookup:MJ: Users.Name=System"
+    },
+    "primaryKey": {
+      "ID": "A1B2C3D4-1109-4A11-9B08-000000000001"
+    },
+    "relatedEntities": {
+      "MJ: AI Agent Skills": [
+        {
+          "fields": {
+            "AgentID": "@lookup:MJ: AI Agents.Name=Chief of Staff",
+            "SkillID": "@parent:ID",
+            "Status": "Active"
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B08-000000000101"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:48.750Z",
+            "checksum": "a6abca0b051bc6cca5a327e2d699ebc65a1d874958d9f0a9d9dd856ef89dcfa3"
+          }
+        }
+      ],
+      "MJ: AI Skill Actions": [
+        {
+          "fields": {
+            "SkillID": "@parent:ID",
+            "ActionID": "@lookup:MJ: Actions.Name=Sync GitHub Repository Tasks"
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B08-000000000201"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:48.805Z",
+            "checksum": "e510eeca327b026c2ce4aeff31987800e209ef7f3ad0995bbcec77bd929cc340"
+          }
+        },
+        {
+          "fields": {
+            "SkillID": "@parent:ID",
+            "ActionID": "@lookup:MJ: Actions.Name=Handle GitHub Tasks Webhook"
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B08-000000000202"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:48.827Z",
+            "checksum": "4044055c73933bcee5aac23c553cbaebae824c845bc3d55b14cf774b3c4b6ed8"
+          }
+        },
+        {
+          "fields": {
+            "SkillID": "@parent:ID",
+            "ActionID": "@lookup:MJ: Actions.Name=Infer GitHub Task Planning Fields"
+          },
+          "primaryKey": {
+            "ID": "A1B2C3D4-1109-4A11-9B08-000000000203"
+          },
+          "sync": {
+            "lastModified": "2026-11-09T23:04:48.849Z",
+            "checksum": "12d6b1822b80429d65370df1120468b40214d15b309004fcd2c111db403e6b65"
+          }
+        }
+      ]
+    },
+    "sync": {
+      "lastModified": "2026-11-09T23:04:48.703Z",
+      "checksum": "5ff2dd0f49173174adb66a1607d8561c33471abb294be50ed4e63e7817ca136f"
+    }
+  }
+]
