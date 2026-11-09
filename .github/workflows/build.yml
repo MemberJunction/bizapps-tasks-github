@@ -1,0 +1,54 @@
+name: Build All Packages
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [next]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [next, main]
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: 'pnpm'
+          cache-dependency-path: 'pnpm-lock.yaml'
+
+      - name: Run repository & migration guards
+        run: |
+          ./.github/scripts/validate-package-repository.sh
+          ./.github/scripts/validate-package-files.sh
+          node ./.github/scripts/check-dependency-model.mjs
+          node ./.github/scripts/check-caret-pins.mjs
+          ./.github/scripts/validate-migration-filenames.sh
+          node ./.github/scripts/check-migration-entityfield-sequence.mjs
+          node ./.github/scripts/check-migration-no-prune.mjs
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm run build:packages
+
+      - name: Run tests
+        if: ${{ !cancelled() }}
+        run: pnpm run test

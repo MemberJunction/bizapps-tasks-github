@@ -1,0 +1,57 @@
+{
+  "$schema": "https://raw.githubusercontent.com/MemberJunction/MJ/main/packages/OpenApp/Engine/schema/mj-app.schema.json",
+  "name": "mj-bizapps-tasks-github",
+  "displayName": "BizApps Tasks — GitHub Extension",
+  "description": "Extends BizApps Tasks with GitHub Issue and Pull Request IS-A task subtypes, pull-ownership sync, webhook handlers, Field Suggestion planning inference, and Chief of Staff / Software Factory GitHub skills.",
+  "version": "1.0.0",
+  "publisher": {
+    "name": "MemberJunction",
+    "email": "info@memberjunction.com",
+    "url": "https://memberjunction.com"
+  },
+  "repository": "https://github.com/MemberJunction/bizapps-tasks-github",
+  "mjVersionRange": ">=6.3.0 <7.0.0",
+  "dependencies": {
+    "mj-bizapps-common": {
+      "version": ">=5.37.0 <6.0.0",
+      "repository": "https://github.com/MemberJunction/bizapps-common"
+    },
+    "mj-bizapps-tasks": {
+      "version": ">=1.11.0 <2.0.0",
+      "repository": "https://github.com/MemberJunction/bizapps-tasks"
+    }
+  },
+  "schema": {
+    "name": "__mj_BizAppsTasksGitHub",
+    "createIfNotExists": true
+  },
+  "migrations": {
+    "directory": "migrations",
+    "engine": "skyway",
+    "teardownDirectory": "teardown"
+  },
+  "metadata": {
+    "directory": "metadata"
+  },
+  "packages": {
+    "shared": [
+      {
+        "name": "@mj-biz-apps/tasks-github-entities"
+      },
+      {
+        "name": "@mj-biz-apps/tasks-github-core"
+      }
+    ],
+    "server": [
+      {
+        "name": "@mj-biz-apps/tasks-github-actions",
+        "role": "actions"
+      },
+      {
+        "name": "@mj-biz-apps/tasks-github-server",
+        "role": "graphql",
+        "startupExport": "LoadBizAppsTasksGitHubServer"
+      }
+    ]
+  }
+}

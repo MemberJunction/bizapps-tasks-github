@@ -1,0 +1,20 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.1.1/schema.json",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "fixed": [
+    [
+      "@mj-biz-apps/tasks-github-entities",
+      "@mj-biz-apps/tasks-github-core",
+      "@mj-biz-apps/tasks-github-actions",
+      "@mj-biz-apps/tasks-github-server"
+    ]
+  ],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "next",
+  "updateInternalDependencies": "patch",
+  "ignore": [
+    "@mj-biz-apps/tasks-github-integration-tests"
+  ]
+}
