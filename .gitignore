@@ -14,6 +14,7 @@ SQL Scripts/
 Schema Files/
 migrations/codegen/
 metadata/sql_logging/
+temp_sql_scripts/
 mj.config.cjs
 mj.config.js
 mj.config.json
