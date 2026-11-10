@@ -84,16 +84,30 @@ interface WebhookPullRequestPayload {
 
 interface WebhookReviewPayload {
     state?: string;
+    user?: WebhookUserPayload | null;
 }
 
 interface WebhookCheckPullRequestRef {
     number?: number;
+    base?: {
+        repo?: {
+            full_name?: string;
+            name?: string;
+            owner?: { login?: string } | null;
+        } | null;
+    } | null;
 }
 
 interface WebhookCheckPayload {
+    id?: number | string;
+    name?: string | null;
     status?: string | null;
     conclusion?: string | null;
     head_sha?: string | null;
+    app?: {
+        id?: number | string;
+        slug?: string | null;
+    } | null;
     pull_requests?: WebhookCheckPullRequestRef[] | null;
 }
 
@@ -130,6 +144,8 @@ export interface HandleGitHubWebhookResult {
 
 export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
     private readonly _processedDeliveries = new Set<string>();
+    private readonly _checkStatesBySha = new Map<string, Map<string, GitHubPullRequestChecksStatus>>();
+    private readonly _reviewStatesByPr = new Map<string, Map<string, 'APPROVED' | 'CHANGES_REQUESTED'>>();
 
     public constructor() {
         super();
@@ -140,10 +156,12 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
     }
 
     /**
-     * Clears the in-memory processed `X-GitHub-Delivery` set (primarily used by tests).
+     * Clears the in-memory processed `X-GitHub-Delivery` set and per-SHA/per-PR aggregation state (primarily used by tests).
      */
     public ClearProcessedDeliveries(): void {
         this._processedDeliveries.clear();
+        this._checkStatesBySha.clear();
+        this._reviewStatesByPr.clear();
     }
 
     /**
@@ -312,38 +330,83 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             };
         }
 
+        const headSha = typeof checkObj.head_sha === 'string' ? checkObj.head_sha.trim() : '';
+        if (!headSha) {
+            return {
+                status: 'validation_error',
+                reason: `Webhook ${eventName} payload missing required head_sha`,
+            };
+        }
+
+        const expectedFullName = `${repository.Owner}/${repository.Name}`.toLowerCase();
+        const rawPrRefs = checkObj.pull_requests ?? [];
+        const sameRepoPrNumbers: number[] = [];
+        for (const p of rawPrRefs) {
+            if (typeof p.number !== 'number' || !Number.isInteger(p.number) || p.number <= 0) {
+                continue;
+            }
+            const baseRepo = p.base?.repo;
+            if (baseRepo) {
+                const fullName = (
+                    baseRepo.full_name
+                    ?? (baseRepo.owner?.login && baseRepo.name ? `${baseRepo.owner.login}/${baseRepo.name}` : '')
+                ).trim().toLowerCase();
+                if (fullName && fullName !== expectedFullName) {
+                    continue;
+                }
+            }
+            sameRepoPrNumbers.push(p.number);
+        }
+
+        if (rawPrRefs.length > 0 && sameRepoPrNumbers.length === 0) {
+            this.recordDeliveryId(cleanDeliveryId);
+            return {
+                status: 'ignored',
+                reason: 'Check event pull_requests belong to a different base repository',
+            };
+        }
+
         const status = (checkObj.status ?? '').toLowerCase();
         const conclusion = (checkObj.conclusion ?? '').toLowerCase();
         const action = (payload.action ?? '').toLowerCase();
 
-        let checksStatus: GitHubPullRequestChecksStatus = 'Pending';
+        let singleCheckStatus: GitHubPullRequestChecksStatus = 'Pending';
         if (status === 'completed' || action === 'completed') {
             if (conclusion === 'success') {
-                checksStatus = 'Passing';
-            } else if (conclusion === 'neutral' || conclusion === 'skipped') {
-                checksStatus = 'Neutral';
+                singleCheckStatus = 'Passing';
+            } else if (conclusion === 'neutral' || conclusion === 'skipped' || conclusion === 'stale') {
+                singleCheckStatus = 'Neutral';
             } else if (
                 conclusion === 'failure'
                 || conclusion === 'timed_out'
                 || conclusion === 'cancelled'
                 || conclusion === 'action_required'
                 || conclusion === 'startup_failure'
-                || conclusion === 'stale'
             ) {
-                checksStatus = 'Failing';
+                singleCheckStatus = 'Failing';
+            } else {
+                singleCheckStatus = 'Neutral';
             }
         }
 
-        const prNumbers = (checkObj.pull_requests ?? [])
-            .map((p) => p.number)
-            .filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n > 0);
-        const headSha = typeof checkObj.head_sha === 'string' ? checkObj.head_sha : null;
+        const shaKey = `${expectedFullName}@${headSha}`;
+        let checkMap = this._checkStatesBySha.get(shaKey);
+        if (!checkMap) {
+            checkMap = new Map<string, GitHubPullRequestChecksStatus>();
+            this._checkStatesBySha.set(shaKey, checkMap);
+        }
+        const checkIdKey = eventName === 'check_run'
+            ? `run:${(checkObj.name?.trim() || String(checkObj.id ?? 'default')).toLowerCase()}`
+            : `suite:${String(checkObj.app?.id ?? checkObj.app?.slug ?? checkObj.id ?? 'default').toLowerCase()}`;
+        checkMap.set(checkIdKey, singleCheckStatus);
+
+        const aggregatedStatus = this.aggregateCheckStatuses(checkMap);
 
         const syncResult = await GitHubTaskSyncService.Instance.UpdatePullRequestChecksStatus({
             repository,
-            prNumbers,
+            prNumbers: sameRepoPrNumbers,
             headSha,
-            checksStatus,
+            checksStatus: aggregatedStatus,
             contextUser,
             provider,
         });
@@ -362,6 +425,22 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             status: 'synced',
             syncResult,
         };
+    }
+
+    private aggregateCheckStatuses(
+        checkMap: Map<string, GitHubPullRequestChecksStatus>,
+    ): GitHubPullRequestChecksStatus {
+        const statuses = Array.from(checkMap.values());
+        if (statuses.some((s) => s === 'Failing')) {
+            return 'Failing';
+        }
+        if (statuses.some((s) => s === 'Pending')) {
+            return 'Pending';
+        }
+        if (statuses.some((s) => s === 'Passing')) {
+            return 'Passing';
+        }
+        return 'Neutral';
     }
 
     private recordDeliveryId(deliveryId: string): void {
@@ -437,13 +516,38 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
         let reviewDecision: GitHubPullRequestReviewDecision | null | undefined = undefined;
         if (eventName === 'pull_request_review') {
             const reviewState = (payload.review?.state ?? '').toLowerCase();
+            const repoFullName = `${payload.repository?.owner?.login ?? ''}/${payload.repository?.name ?? ''}`.toLowerCase();
+            const prKey = `${repoFullName}#${pr.number}`;
+            const reviewerKey = (
+                payload.review?.user?.login?.trim()
+                || (payload.review?.user?.id != null ? String(payload.review.user.id) : '')
+                || 'default'
+            ).toLowerCase();
+
+            let reviewerMap = this._reviewStatesByPr.get(prKey);
+            if (!reviewerMap) {
+                reviewerMap = new Map<string, 'APPROVED' | 'CHANGES_REQUESTED'>();
+                this._reviewStatesByPr.set(prKey, reviewerMap);
+            }
+
             if (reviewState === 'approved') {
-                reviewDecision = 'APPROVED';
+                reviewerMap.set(reviewerKey, 'APPROVED');
             } else if (reviewState === 'changes_requested') {
-                reviewDecision = 'CHANGES_REQUESTED';
+                reviewerMap.set(reviewerKey, 'CHANGES_REQUESTED');
             } else if (reviewState === 'dismissed') {
-                const hasRemainingReviewers = (pr.requested_reviewers?.length ?? 0) > 0;
-                reviewDecision = hasRemainingReviewers ? 'REVIEW_REQUIRED' : null;
+                reviewerMap.delete(reviewerKey);
+            }
+
+            if (reviewState === 'approved' || reviewState === 'changes_requested' || reviewState === 'dismissed') {
+                const decisions = Array.from(reviewerMap.values());
+                if (decisions.some((d) => d === 'CHANGES_REQUESTED')) {
+                    reviewDecision = 'CHANGES_REQUESTED';
+                } else if (decisions.some((d) => d === 'APPROVED')) {
+                    reviewDecision = 'APPROVED';
+                } else {
+                    const hasRemainingReviewers = (pr.requested_reviewers?.length ?? 0) > 0;
+                    reviewDecision = hasRemainingReviewers ? 'REVIEW_REQUIRED' : null;
+                }
             }
             // Note: `commented` reviews do not alter aggregate reviewDecision (`undefined` preserves stored decision)
         }

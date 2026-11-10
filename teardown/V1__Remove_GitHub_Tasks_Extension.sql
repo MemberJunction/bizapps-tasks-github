@@ -52,12 +52,44 @@ SELECT DISTINCT fs.[ID]
            )
        );
 
+DECLARE @GitHubConversationDetailIDs TABLE ([ID] UNIQUEIDENTIFIER NOT NULL PRIMARY KEY);
+
+INSERT INTO @GitHubConversationDetailIDs ([ID])
+SELECT [ID]
+  FROM [${mjSchema}].[ConversationDetail]
+ WHERE [ConversationID] IN (SELECT [ID] FROM @GitHubFieldSuggestionIDs);
+
 DELETE FROM [${mjSchema}].[FieldSuggestion]
  WHERE [ID] IN (SELECT [ID] FROM @GitHubFieldSuggestionIDs);
 
 UPDATE [${mjSchema}].[Conversation]
    SET [LastConversationID] = NULL
  WHERE [LastConversationID] IN (SELECT [ID] FROM @GitHubFieldSuggestionIDs);
+
+UPDATE [${mjSchema}].[AIAgentRun]
+   SET [ConversationDetailID] = NULL
+ WHERE [ConversationDetailID] IN (SELECT [ID] FROM @GitHubConversationDetailIDs);
+
+UPDATE [${mjSchema}].[AIAgentRun]
+   SET [ConversationID] = NULL
+ WHERE [ConversationID] IN (SELECT [ID] FROM @GitHubFieldSuggestionIDs);
+
+DELETE FROM [${mjSchema}].[ConversationCompactionRun]
+ WHERE [ConversationDetailID] IN (SELECT [ID] FROM @GitHubConversationDetailIDs);
+
+DELETE FROM [${mjSchema}].[ConversationDetailRating]
+ WHERE [ConversationDetailID] IN (SELECT [ID] FROM @GitHubConversationDetailIDs);
+
+DELETE FROM [${mjSchema}].[ConversationDetailAttachment]
+ WHERE [ConversationDetailID] IN (SELECT [ID] FROM @GitHubConversationDetailIDs);
+
+DELETE FROM [${mjSchema}].[ConversationDetailArtifact]
+ WHERE [ConversationDetailID] IN (SELECT [ID] FROM @GitHubConversationDetailIDs);
+
+UPDATE [${mjSchema}].[ConversationDetail]
+   SET [ParentID] = NULL
+ WHERE [ConversationID] IN (SELECT [ID] FROM @GitHubFieldSuggestionIDs)
+    OR [ParentID] IN (SELECT [ID] FROM @GitHubConversationDetailIDs);
 
 DELETE FROM [${mjSchema}].[ConversationDetail]
  WHERE [ConversationID] IN (SELECT [ID] FROM @GitHubFieldSuggestionIDs);
@@ -77,12 +109,19 @@ DELETE FROM [${mjSchema}].[Comment]
 DELETE FROM [${mjSchema}].[Conversation]
  WHERE [ID] IN (SELECT [ID] FROM @GitHubFieldSuggestionIDs);
 
--- 3. Retire Planning Inference Prompt and its execution runs
+-- 3. Retire Planning Inference Prompt, its Template, and its execution runs
 DECLARE @GitHubPromptIDs TABLE ([ID] UNIQUEIDENTIFIER NOT NULL PRIMARY KEY);
 INSERT INTO @GitHubPromptIDs ([ID])
 SELECT [ID]
   FROM [${mjSchema}].[AIPrompt]
  WHERE [Name] = N'GitHub Task Planning Field Inference';
+
+DECLARE @GitHubTemplateIDs TABLE ([ID] UNIQUEIDENTIFIER NOT NULL PRIMARY KEY);
+INSERT INTO @GitHubTemplateIDs ([ID])
+SELECT DISTINCT [TemplateID]
+  FROM [${mjSchema}].[AIPrompt]
+ WHERE [ID] IN (SELECT [ID] FROM @GitHubPromptIDs)
+   AND [TemplateID] IS NOT NULL;
 
 DECLARE @GitHubPromptRunIDs TABLE ([ID] UNIQUEIDENTIFIER NOT NULL PRIMARY KEY);
 INSERT INTO @GitHubPromptRunIDs ([ID])
@@ -102,6 +141,17 @@ UPDATE [${mjSchema}].[AIPromptRun]
  WHERE [RerunFromPromptRunID] IN (SELECT [ID] FROM @GitHubPromptRunIDs)
     OR [ID] IN (SELECT [ID] FROM @GitHubPromptRunIDs);
 
+UPDATE [${mjSchema}].[RubricEvaluation]
+   SET [AIPromptRunID] = NULL
+ WHERE [AIPromptRunID] IN (SELECT [ID] FROM @GitHubPromptRunIDs);
+
+UPDATE [${mjSchema}].[UserRoutineRun]
+   SET [PromptRunID] = NULL
+ WHERE [PromptRunID] IN (SELECT [ID] FROM @GitHubPromptRunIDs);
+
+DELETE FROM [${mjSchema}].[ConversationCompactionRun]
+ WHERE [PromptRunID] IN (SELECT [ID] FROM @GitHubPromptRunIDs);
+
 DELETE FROM [${mjSchema}].[AIPromptRunMedia]
  WHERE [PromptRunID] IN (SELECT [ID] FROM @GitHubPromptRunIDs);
 
@@ -118,6 +168,15 @@ DELETE FROM [${mjSchema}].[AIPromptModel]
 DELETE FROM [${mjSchema}].[AIPrompt]
  WHERE [ID] IN (SELECT [ID] FROM @GitHubPromptIDs);
 
+DELETE FROM [${mjSchema}].[TemplateParam]
+ WHERE [TemplateID] IN (SELECT [ID] FROM @GitHubTemplateIDs);
+
+DELETE FROM [${mjSchema}].[TemplateContent]
+ WHERE [TemplateID] IN (SELECT [ID] FROM @GitHubTemplateIDs);
+
+DELETE FROM [${mjSchema}].[Template]
+ WHERE [ID] IN (SELECT [ID] FROM @GitHubTemplateIDs);
+
 -- 4. Retire Actions, execution logs, and Action Category
 DECLARE @GitHubActionIDs TABLE ([ID] UNIQUEIDENTIFIER NOT NULL PRIMARY KEY);
 
@@ -130,8 +189,43 @@ SELECT [ID]
      N'Infer GitHub Task Planning Fields'
  );
 
-DELETE FROM [${mjSchema}].[ActionExecutionLog]
+DECLARE @GitHubActionExecutionLogIDs TABLE ([ID] UNIQUEIDENTIFIER NOT NULL PRIMARY KEY);
+
+INSERT INTO @GitHubActionExecutionLogIDs ([ID])
+SELECT [ID]
+  FROM [${mjSchema}].[ActionExecutionLog]
  WHERE [ActionID] IN (SELECT [ID] FROM @GitHubActionIDs);
+
+UPDATE [${mjSchema}].[ProcessRunDetail]
+   SET [ActionExecutionLogID] = NULL
+ WHERE [ActionExecutionLogID] IN (SELECT [ID] FROM @GitHubActionExecutionLogIDs);
+
+UPDATE [${mjSchema}].[UserRoutineRun]
+   SET [ActionExecutionLogID] = NULL
+ WHERE [ActionExecutionLogID] IN (SELECT [ID] FROM @GitHubActionExecutionLogIDs);
+
+DELETE FROM [${mjSchema}].[ActionExecutionLog]
+ WHERE [ID] IN (SELECT [ID] FROM @GitHubActionExecutionLogIDs);
+
+IF OBJECT_ID(N'[${mjSchema}].[ScheduledActionParam]', N'U') IS NOT NULL
+    AND OBJECT_ID(N'[${mjSchema}].[ScheduledAction]', N'U') IS NOT NULL
+BEGIN
+    EXEC sp_executesql N'
+        DELETE FROM [${mjSchema}].[ScheduledActionParam]
+         WHERE [ScheduledActionID] IN (
+             SELECT [ID] FROM [${mjSchema}].[ScheduledAction]
+              WHERE [ActionID] IN (
+                  SELECT [ID] FROM [${mjSchema}].[Action]
+                   WHERE [Name] IN (N''Sync GitHub Repository Tasks'', N''Handle GitHub Tasks Webhook'', N''Infer GitHub Task Planning Fields'')
+              )
+         );
+        DELETE FROM [${mjSchema}].[ScheduledAction]
+         WHERE [ActionID] IN (
+             SELECT [ID] FROM [${mjSchema}].[Action]
+              WHERE [Name] IN (N''Sync GitHub Repository Tasks'', N''Handle GitHub Tasks Webhook'', N''Infer GitHub Task Planning Fields'')
+         );
+    ';
+END
 
 DELETE FROM [${mjSchema}].[ActionAuthorization]
  WHERE [ActionID] IN (SELECT [ID] FROM @GitHubActionIDs);
@@ -235,6 +329,21 @@ DELETE FROM [__mj_BizAppsTasks].[Task]
 
 DELETE FROM [__mj_BizAppsTasks].[TaskNotificationConfig]
  WHERE [TaskTypeID] IN (SELECT [ID] FROM @GitHubTaskTypeIDs);
+
+UPDATE [__mj_BizAppsTasks].[TaskTemplateItem]
+   SET [ParentItemID] = NULL
+ WHERE [TemplateID] IN (
+     SELECT [ID]
+       FROM [__mj_BizAppsTasks].[TaskTemplate]
+      WHERE [TypeID] IN (SELECT [ID] FROM @GitHubTaskTypeIDs)
+ );
+
+DELETE FROM [__mj_BizAppsTasks].[TaskTemplateItem]
+ WHERE [TemplateID] IN (
+     SELECT [ID]
+       FROM [__mj_BizAppsTasks].[TaskTemplate]
+      WHERE [TypeID] IN (SELECT [ID] FROM @GitHubTaskTypeIDs)
+ );
 
 DELETE FROM [__mj_BizAppsTasks].[TaskTemplate]
  WHERE [TypeID] IN (SELECT [ID] FROM @GitHubTaskTypeIDs);

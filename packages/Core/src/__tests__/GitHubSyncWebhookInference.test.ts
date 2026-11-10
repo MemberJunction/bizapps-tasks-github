@@ -41,16 +41,19 @@ class FakeEntityObject {
     public LatestResult = { CompleteMessage: '' };
     private readonly _store: Map<string, InMemoryRecord>;
     private readonly _onSave?: (rec: InMemoryRecord) => void;
-    [key: string]: string | number | boolean | Date | null | undefined | { CompleteMessage: string } | Map<string, InMemoryRecord> | ((rec: InMemoryRecord) => void) | (() => void) | ((id: string) => Promise<boolean>) | (() => Promise<boolean>);
+    private readonly _onDelete?: (id: string) => void;
+    [key: string]: string | number | boolean | Date | null | undefined | { CompleteMessage: string } | Map<string, InMemoryRecord> | ((rec: InMemoryRecord) => void) | ((id: string) => void) | (() => void) | ((id: string) => Promise<boolean>) | (() => Promise<boolean>);
 
     public constructor(
         store: Map<string, InMemoryRecord>,
         private readonly _idPrefix: string,
         private readonly _counter: { next: number },
         onSave?: (rec: InMemoryRecord) => void,
+        onDelete?: (id: string) => void,
     ) {
         this._store = store;
         this._onSave = onSave;
+        this._onDelete = onDelete;
     }
 
     public NewRecord(): void {
@@ -97,7 +100,11 @@ class FakeEntityObject {
     }
 
     public async Delete(): Promise<boolean> {
-        return this._store.delete(this.ID.toLowerCase());
+        const existed = this._store.delete(this.ID.toLowerCase());
+        if (existed) {
+            this._onDelete?.(this.ID.toLowerCase());
+        }
+        return existed;
     }
 }
 
@@ -186,16 +193,27 @@ function buildTestHarness() {
     });
 
     const makeEntity = (entityName: string, initial?: InMemoryRecord): FakeEntityObject => {
-        const obj = new FakeEntityObject(getStore(entityName), entityName, counter, (saved) => {
-            // Simulate SubtypeSelector AutoEnsureOnSave on Task save
-            if (entityName === TASKS_ENTITY_NAME) {
-                if (saved.TypeID === ISSUE_TYPE_ID && !getStore(GITHUB_ISSUE_TASKS_ENTITY).has(saved.ID.toLowerCase())) {
-                    getStore(GITHUB_ISSUE_TASKS_ENTITY).set(saved.ID.toLowerCase(), { ID: saved.ID, State: 'open' });
-                } else if (saved.TypeID === PR_TYPE_ID && !getStore(GITHUB_PR_TASKS_ENTITY).has(saved.ID.toLowerCase())) {
-                    getStore(GITHUB_PR_TASKS_ENTITY).set(saved.ID.toLowerCase(), { ID: saved.ID, State: 'open', IsDraft: false });
+        const obj = new FakeEntityObject(
+            getStore(entityName),
+            entityName,
+            counter,
+            (saved) => {
+                // Simulate SubtypeSelector AutoEnsureOnSave on Task save
+                if (entityName === TASKS_ENTITY_NAME) {
+                    if (saved.TypeID === ISSUE_TYPE_ID && !getStore(GITHUB_ISSUE_TASKS_ENTITY).has(saved.ID.toLowerCase())) {
+                        getStore(GITHUB_ISSUE_TASKS_ENTITY).set(saved.ID.toLowerCase(), { ID: saved.ID, State: 'open' });
+                    } else if (saved.TypeID === PR_TYPE_ID && !getStore(GITHUB_PR_TASKS_ENTITY).has(saved.ID.toLowerCase())) {
+                        getStore(GITHUB_PR_TASKS_ENTITY).set(saved.ID.toLowerCase(), { ID: saved.ID, State: 'open', IsDraft: false });
+                    }
                 }
-            }
-        });
+            },
+            (deletedId) => {
+                // Simulate MJ IS-A chain delete: deleting an IS-A child also deletes its parent Task row
+                if (entityName === GITHUB_ISSUE_TASKS_ENTITY || entityName === GITHUB_PR_TASKS_ENTITY) {
+                    getStore(TASKS_ENTITY_NAME).delete(deletedId);
+                }
+            },
+        );
         if (initial) {
             Object.assign(obj, initial);
         }
@@ -1109,91 +1127,200 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
         expect(childSuggestions[0].SuggestedValue).toBe(JSON.stringify(validParentId));
     });
 
-    it('transitions PR ChecksStatus from Pending to Passing/Failing on check_suite and check_run completion events', async () => {
+    it('aggregates check_suite and check_run events per head_sha, ignores stale SHAs and fork PRs, maps stale conclusion to Neutral, and updates all matching PRs', async () => {
         const h = buildTestHarness();
         const secret = 'checks-webhook-secret';
 
-        // 1. Open and synchronize PR #500 -> ChecksStatus starts at 'Pending'
-        const syncPrRaw = JSON.stringify({
-            action: 'synchronize',
-            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
-            pull_request: {
-                number: 500,
-                node_id: 'PR_500',
-                title: 'feat: software factory gate checks',
-                body: 'Wait on CI checks',
-                html_url: 'https://github.com/MemberJunction/bizapps-tasks/pull/500',
-                state: 'open',
-                draft: false,
-                head: { ref: 'feat/checks-gate', sha: 'sha-checks-500' },
-                base: { ref: 'next' },
-                updated_at: '2026-11-10T14:00:00.000Z',
-            },
-        });
-        await GitHubWebhookService.Instance.HandleWebhook({
-            eventName: 'pull_request',
-            deliveryId: 'pr-500-sync',
-            signatureHeader: `sha256=${createHmac('sha256', secret).update(syncPrRaw, 'utf8').digest('hex')}`,
-            rawPayload: syncPrRaw,
-            webhookSecret: secret,
-            contextUser: h.contextUser,
-            provider: h.provider,
-        });
+        // 1. Open and synchronize PR #500 and PR #501 sharing HeadSha 'sha-checks-500' -> ChecksStatus starts at 'Pending'
+        for (const num of [500, 501]) {
+            const syncPrRaw = JSON.stringify({
+                action: 'synchronize',
+                repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+                pull_request: {
+                    number: num,
+                    node_id: `PR_${num}`,
+                    title: `feat: software factory gate checks #${num}`,
+                    body: 'Wait on CI checks',
+                    html_url: `https://github.com/MemberJunction/bizapps-tasks/pull/${num}`,
+                    state: 'open',
+                    draft: false,
+                    head: { ref: 'feat/checks-gate', sha: 'sha-checks-500' },
+                    base: { ref: 'next' },
+                    updated_at: '2026-11-10T14:00:00.000Z',
+                },
+            });
+            await GitHubWebhookService.Instance.HandleWebhook({
+                eventName: 'pull_request',
+                deliveryId: `pr-${num}-sync`,
+                signatureHeader: `sha256=${createHmac('sha256', secret).update(syncPrRaw, 'utf8').digest('hex')}`,
+                rawPayload: syncPrRaw,
+                webhookSecret: secret,
+                contextUser: h.contextUser,
+                provider: h.provider,
+            });
+        }
 
-        let prExt = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values())[0];
-        expect(prExt.ChecksStatus).toBe('Pending');
-
-        // 2. check_suite completed with conclusion='success' transitions ChecksStatus -> 'Passing'
-        const checkSuiteSuccessRaw = JSON.stringify({
-            action: 'completed',
-            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
-            check_suite: {
-                status: 'completed',
-                conclusion: 'success',
-                head_sha: 'sha-checks-500',
-                pull_requests: [{ number: 500 }],
-            },
-        });
-        const suiteRes = await GitHubWebhookService.Instance.HandleWebhook({
-            eventName: 'check_suite',
-            deliveryId: 'pr-500-suite-pass',
-            signatureHeader: `sha256=${createHmac('sha256', secret).update(checkSuiteSuccessRaw, 'utf8').digest('hex')}`,
-            rawPayload: checkSuiteSuccessRaw,
-            webhookSecret: secret,
-            contextUser: h.contextUser,
-            provider: h.provider,
-        });
-        expect(suiteRes.status).toBe('synced');
-        prExt = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values())[0];
-        expect(prExt.ChecksStatus).toBe('Passing');
-
-        // 3. check_run completed with conclusion='failure' matched by head_sha transitions ChecksStatus -> 'Failing'
-        const checkRunFailRaw = JSON.stringify({
+        // 2. check_run with conclusion='stale' maps to 'Neutral' (never 'Failing') and updates both PR #500 and PR #501
+        const staleRunRaw = JSON.stringify({
             action: 'completed',
             repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
             check_run: {
+                id: 1,
+                name: 'obsolete-job',
+                status: 'completed',
+                conclusion: 'stale',
+                head_sha: 'sha-checks-500',
+                pull_requests: [{ number: 500 }, { number: 501 }],
+            },
+        });
+        await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'check_run',
+            deliveryId: 'pr-500-run-stale',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(staleRunRaw, 'utf8').digest('hex')}`,
+            rawPayload: staleRunRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+        for (const prExt of h.getStore(GITHUB_PR_TASKS_ENTITY).values()) {
+            expect(prExt.ChecksStatus).toBe('Neutral');
+        }
+
+        // 3. Job A fails ('lint') and Job B succeeds ('build') -> aggregate remains 'Failing' (not overwritten by last event)
+        const jobAFailRaw = JSON.stringify({
+            action: 'completed',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            check_run: {
+                id: 2,
+                name: 'lint',
                 status: 'completed',
                 conclusion: 'failure',
                 head_sha: 'sha-checks-500',
                 pull_requests: [],
             },
         });
-        const runRes = await GitHubWebhookService.Instance.HandleWebhook({
+        await GitHubWebhookService.Instance.HandleWebhook({
             eventName: 'check_run',
-            deliveryId: 'pr-500-run-fail',
-            signatureHeader: `sha256=${createHmac('sha256', secret).update(checkRunFailRaw, 'utf8').digest('hex')}`,
-            rawPayload: checkRunFailRaw,
+            deliveryId: 'pr-500-job-a-fail',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(jobAFailRaw, 'utf8').digest('hex')}`,
+            rawPayload: jobAFailRaw,
             webhookSecret: secret,
             contextUser: h.contextUser,
             provider: h.provider,
         });
-        expect(runRes.status).toBe('synced');
-        prExt = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values())[0];
-        expect(prExt.ChecksStatus).toBe('Failing');
+
+        const jobBPassRaw = JSON.stringify({
+            action: 'completed',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            check_run: {
+                id: 3,
+                name: 'build',
+                status: 'completed',
+                conclusion: 'success',
+                head_sha: 'sha-checks-500',
+                pull_requests: [],
+            },
+        });
+        await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'check_run',
+            deliveryId: 'pr-500-job-b-pass',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(jobBPassRaw, 'utf8').digest('hex')}`,
+            rawPayload: jobBPassRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+        for (const prExt of h.getStore(GITHUB_PR_TASKS_ENTITY).values()) {
+            expect(prExt.ChecksStatus).toBe('Failing');
+        }
+
+        // 4. Job A ('lint') is re-run and succeeds -> aggregate transitions to 'Passing'
+        const jobARerunPassRaw = JSON.stringify({
+            action: 'completed',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            check_run: {
+                id: 4,
+                name: 'lint',
+                status: 'completed',
+                conclusion: 'success',
+                head_sha: 'sha-checks-500',
+                pull_requests: [],
+            },
+        });
+        await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'check_run',
+            deliveryId: 'pr-500-job-a-pass',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(jobARerunPassRaw, 'utf8').digest('hex')}`,
+            rawPayload: jobARerunPassRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+        for (const prExt of h.getStore(GITHUB_PR_TASKS_ENTITY).values()) {
+            expect(prExt.ChecksStatus).toBe('Passing');
+        }
+
+        // 5. Old commit SHA ('sha-old-499') check_suite failure citing pull_requests: [{ number: 500 }] is ignored and does NOT overwrite 'sha-checks-500'
+        const staleShaFailRaw = JSON.stringify({
+            action: 'completed',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            check_suite: {
+                id: 99,
+                status: 'completed',
+                conclusion: 'failure',
+                head_sha: 'sha-old-499',
+                pull_requests: [{ number: 500 }],
+            },
+        });
+        const staleShaRes = await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'check_suite',
+            deliveryId: 'pr-500-stale-sha',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(staleShaFailRaw, 'utf8').digest('hex')}`,
+            rawPayload: staleShaFailRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+        expect(staleShaRes.status).toBe('ignored');
+        for (const prExt of h.getStore(GITHUB_PR_TASKS_ENTITY).values()) {
+            expect(prExt.ChecksStatus).toBe('Passing');
+        }
+
+        // 6. Fork PR in pull_requests with a different base.repo.full_name is ignored
+        const forkPrRaw = JSON.stringify({
+            action: 'completed',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            check_suite: {
+                id: 100,
+                status: 'completed',
+                conclusion: 'failure',
+                head_sha: 'sha-checks-500',
+                pull_requests: [
+                    {
+                        number: 500,
+                        base: { repo: { full_name: 'other-org/forked-repo' } },
+                    },
+                ],
+            },
+        });
+        const forkRes = await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'check_suite',
+            deliveryId: 'pr-500-fork-pr',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(forkPrRaw, 'utf8').digest('hex')}`,
+            rawPayload: forkPrRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+        expect(forkRes.status).toBe('ignored');
+        for (const prExt of h.getStore(GITHUB_PR_TASKS_ENTITY).values()) {
+            expect(prExt.ChecksStatus).toBe('Passing');
+        }
     });
 
-    it('treats equal updated_at timestamps as stale and rejects malformed assignee elements in ValidateNormalizedGitHubSyncItem', async () => {
+    it('applies same-second updates when GitHub-owned content changes, skips identical same-second payloads, and aggregates multi-reviewer decisions', async () => {
         const h = buildTestHarness();
+        const secret = 'same-second-secret';
 
         await GitHubTaskSyncService.Instance.SyncRepositories({
             repositoryId: h.ids.REPO_ALL_ID,
@@ -1214,15 +1341,15 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
             runInference: false,
         });
 
-        // Re-sync with the exact same updatedAt timestamp -> treated as stale/skipped
-        const equalSync = await GitHubTaskSyncService.Instance.SyncRepositories({
+        // 1. Re-sync with the exact same updatedAt timestamp and identical content -> skipped
+        const identicalSync = await GitHubTaskSyncService.Instance.SyncRepositories({
             repositoryId: h.ids.REPO_ALL_ID,
             items: [
                 {
                     kind: 'issue',
                     number: 601,
                     nodeId: 'I_601',
-                    title: 'Mutated Title With Equal Timestamp',
+                    title: 'Original Title at T0',
                     body: 'Body at T0',
                     htmlUrl: 'https://github.com/MemberJunction/bizapps-tasks/issues/601',
                     state: 'open',
@@ -1233,10 +1360,80 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
             provider: h.provider,
             runInference: false,
         });
-        expect(equalSync[0].skipped).toBe(1);
-        expect(equalSync[0].updated).toBe(0);
+        expect(identicalSync[0].skipped).toBe(1);
+        expect(identicalSync[0].updated).toBe(0);
+
+        // 2. Same-second update (updatedAt equal to T0) that assigns Alice and adds a label -> applied!
+        const sameSecondAssigned = await GitHubTaskSyncService.Instance.SyncRepositories({
+            repositoryId: h.ids.REPO_ALL_ID,
+            items: [
+                {
+                    kind: 'issue',
+                    number: 601,
+                    nodeId: 'I_601',
+                    title: 'Retitled in Same Second at T0',
+                    body: 'Body at T0',
+                    htmlUrl: 'https://github.com/MemberJunction/bizapps-tasks/issues/601',
+                    state: 'open',
+                    labels: ['bug'],
+                    assignees: [{ login: 'alice-dev' }],
+                    assigneeLogins: ['alice-dev'],
+                    updatedAt: '2026-11-10T15:00:00.000Z',
+                },
+            ],
+            contextUser: h.contextUser,
+            provider: h.provider,
+            runInference: false,
+        });
+        expect(sameSecondAssigned[0].updated).toBe(1);
+        expect(sameSecondAssigned[0].skipped).toBe(0);
         const savedTask = Array.from(h.getStore(TASKS_ENTITY_NAME).values())[0];
-        expect(savedTask.Name).toBe('Original Title at T0');
+        expect(savedTask.Name).toBe('Retitled in Same Second at T0');
+        expect(Array.from(h.getStore(TASK_ASSIGNMENTS_ENTITY).values())).toHaveLength(1);
+
+        // 3. Multi-reviewer aggregation: reviewer 1 requests changes, reviewer 2 approves -> remains CHANGES_REQUESTED
+        const makeReviewWebhook = (reviewerLogin: string, state: string, deliveryId: string) => {
+            const rawPayload = JSON.stringify({
+                action: 'submitted',
+                repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+                pull_request: {
+                    number: 602,
+                    node_id: 'PR_602',
+                    title: 'feat: multi-reviewer PR',
+                    body: '',
+                    html_url: 'https://github.com/MemberJunction/bizapps-tasks/pull/602',
+                    state: 'open',
+                    draft: false,
+                    head: { ref: 'feat/rev', sha: 'sha-602' },
+                    base: { ref: 'next' },
+                    updated_at: '2026-11-10T15:05:00.000Z',
+                },
+                review: {
+                    state,
+                    user: { login: reviewerLogin },
+                },
+            });
+            const signatureHeader = `sha256=${createHmac('sha256', secret).update(rawPayload, 'utf8').digest('hex')}`;
+            return GitHubWebhookService.Instance.HandleWebhook({
+                eventName: 'pull_request_review',
+                deliveryId,
+                signatureHeader,
+                rawPayload,
+                webhookSecret: secret,
+                contextUser: h.contextUser,
+                provider: h.provider,
+            });
+        };
+
+        await makeReviewWebhook('alice-dev', 'changes_requested', 'rev-602-1');
+        await makeReviewWebhook('bob-reviewer', 'approved', 'rev-602-2');
+        let pr602 = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values())[0];
+        expect(pr602.ReviewDecision).toBe('CHANGES_REQUESTED');
+
+        // Once alice-dev approves as well, ReviewDecision transitions to APPROVED
+        await makeReviewWebhook('alice-dev', 'approved', 'rev-602-3');
+        pr602 = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values())[0];
+        expect(pr602.ReviewDecision).toBe('APPROVED');
 
         // ValidateNormalizedGitHubSyncItem rejects assignees: [{}] cleanly without throwing TypeError
         const badAssigneesValidation = GitHubFieldOwnershipPolicy.ValidateNormalizedGitHubSyncItem(
@@ -1255,7 +1452,7 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
         expect(badAssigneesValidation.error).toContain('Invalid assignees[0]: login must be a non-empty string');
     });
 
-    it('recovers from cross-process unique-key collision with AutoEnsureOnSave and surfaces task.Delete() failure', async () => {
+    it('recovers from cross-process unique-key collision with IS-A chain delete on AutoEnsureOnSave and surfaces Delete() failure', async () => {
         const h = buildTestHarness();
 
         // Simulate another process having inserted Issue #700 right after preloadRepositoryExtensions ran
@@ -1303,12 +1500,12 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
         });
 
         expect(recoverySync[0].updated).toBe(1);
-        // Only the winning Task and its extension row remain; the losing Task + AutoEnsureOnSave child row were both deleted
+        // Only the winning Task and its extension row remain; issueExt.Delete() deleted both child and parent Task via IS-A chain delete
         expect(h.getStore(TASKS_ENTITY_NAME).size).toBe(1);
         expect(h.getStore(GITHUB_ISSUE_TASKS_ENTITY).size).toBe(1);
         expect(h.getStore(TASKS_ENTITY_NAME).get(winningTaskId)?.Name).toBe('Recovered Title #700');
 
-        // Now verify that if task.Delete() fails during collision recovery, SyncRepositories throws instead of leaving an silent orphan
+        // Now verify that if issueExt.Delete() fails during collision recovery, SyncRepositories throws instead of leaving a silent orphan
         const winningTaskId2 = '00000000-0000-4000-8000-000000000701';
         let injectedWinner2 = false;
         h.provider.GetEntityObject = async (entityName: string) => {
@@ -1328,8 +1525,10 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
                     HtmlURL: 'https://github.com/MemberJunction/bizapps-tasks/issues/701',
                     State: 'open',
                 });
+            }
+            if (entityName === GITHUB_ISSUE_TASKS_ENTITY && injectedWinner2) {
                 entity.Delete = async () => {
-                    entity.LatestResult = { CompleteMessage: 'Simulated FK constraint error on Task.Delete' };
+                    entity.LatestResult = { CompleteMessage: 'Simulated FK constraint error on GitHubIssueTask.Delete' };
                     return false;
                 };
             }
@@ -1354,7 +1553,7 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
                 provider: h.provider,
                 runInference: false,
             }),
-        ).rejects.toThrow(/Failed deleting orphan Task/);
+        ).rejects.toThrow(/Failed deleting orphan GitHubIssueTask/);
     });
 
     it('verifies SQL Server and PostgreSQL teardown scripts contain valid schema and column references', () => {
@@ -1380,8 +1579,20 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
             expect(script).not.toContain('${flyway:defaultSchema}');
             expect(script).toContain('ConversationDetail');
             expect(script).toContain('ConversationArtifact');
+            expect(script).toContain('ConversationDetailRating');
+            expect(script).toContain('ConversationDetailAttachment');
+            expect(script).toContain('ConversationDetailArtifact');
+            expect(script).toContain('TaskTemplateItem');
+            expect(script).toContain('TemplateContent');
+            expect(script).toContain('RubricEvaluation');
+            expect(script).toContain('ProcessRunDetail');
+            expect(script).toContain('UserRoutineRun');
         }
         expect(sqlServerTeardown).toContain('[__mj_BizAppsTasksGitHub].[GitHubPullRequestTask]');
         expect(sqlServerTeardown).toContain('[__mj_BizAppsTasksGitHub].[GitHubIssueTask]');
+        // PG teardown must use folded lowercase __mj_bizappstasks (never quoted "__mj_BizAppsTasks") and to_regclass guards
+        expect(pgTeardown).not.toContain('"__mj_BizAppsTasks"');
+        expect(pgTeardown).toContain('__mj_bizappstasks."Task"');
+        expect(pgTeardown).toContain("to_regclass('__mj_bizappstasksgithub.\"GitHubPullRequestTask\"')");
     });
 });
