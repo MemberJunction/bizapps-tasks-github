@@ -1,0 +1,7 @@
+{
+  "entity": "MJ: Application Settings",
+  "filePattern": "**/.*.json",
+  "pull": {
+    "filter": "Name LIKE 'NavItem.bizapps-tasks-github.%'"
+  }
+}

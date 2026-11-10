@@ -52,6 +52,13 @@
         "role": "graphql",
         "startupExport": "LoadBizAppsTasksGitHubServer"
       }
+    ],
+    "client": [
+      {
+        "name": "@mj-biz-apps/tasks-github-ng",
+        "role": "ui",
+        "startupExport": "LoadBizAppsTasksGitHubClient"
+      }
     ]
   }
 }

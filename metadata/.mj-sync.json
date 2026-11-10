@@ -9,7 +9,8 @@
     "actions",
     "prompts",
     "task-types",
-    "skills"
+    "skills",
+    "tasks-nav-items"
   ],
   "emitSyncNotes": false,
   "sqlLogging": {

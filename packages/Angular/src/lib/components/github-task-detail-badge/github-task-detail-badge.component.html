@@ -1,0 +1,167 @@
+@if (IsLoading) {
+    <div class="gh-badge-loading" role="status" aria-live="polite">
+        <i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>
+        <span>Loading GitHub metadata…</span>
+    </div>
+} @else if (LoadError) {
+    <div class="gh-badge-error" role="alert">
+        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+        <span>{{ LoadError }}</span>
+    </div>
+} @else if (BadgeViewModel; as badge) {
+    <section class="gh-badge-card" aria-label="GitHub task synchronization details">
+        @if (badge.PullRequest; as pr) {
+            <div class="gh-badge-row">
+                <span class="gh-badge-kind">
+                    <i class="fa-solid fa-code-pull-request" aria-hidden="true"></i>
+                    @if (pr.RepositoryFullName) {
+                        <span>{{ pr.RepositoryFullName }}</span>
+                    }
+                    <strong>{{ pr.NumberLabel }}</strong>
+                </span>
+
+                <span
+                    class="gh-chip"
+                    [class.gh-chip-open]="pr.PRState === 'open' && !pr.IsDraft"
+                    [class.gh-chip-draft]="pr.PRState === 'open' && pr.IsDraft"
+                    [class.gh-chip-merged]="pr.PRState === 'merged'"
+                    [class.gh-chip-closed]="pr.PRState === 'closed'">
+                    {{ pr.StateLabel }}
+                </span>
+
+                @if (pr.BranchComparisonLabel) {
+                    <span class="gh-chip gh-chip-branch" title="Pull request source and base branches">
+                        <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+                        <code>{{ pr.BranchComparisonLabel }}</code>
+                    </span>
+                }
+
+                <span class="gh-diff-pill" title="Lines added and deleted in pull request diff">
+                    <span class="gh-diff-add">+{{ pr.Additions }}</span>
+                    <span class="gh-diff-sep">/</span>
+                    <span class="gh-diff-del">-{{ pr.Deletions }}</span>
+                    @if (pr.ChangedFiles !== null) {
+                        <span class="gh-diff-files">({{ pr.ChangedFiles }} {{ pr.ChangedFiles === 1 ? 'file' : 'files' }})</span>
+                    }
+                </span>
+
+                @if (pr.ChecksStatusLabel) {
+                    <span
+                        class="gh-chip"
+                        [class.gh-chip-success]="pr.ChecksStatus === 'Passing'"
+                        [class.gh-chip-danger]="pr.ChecksStatus === 'Failing'"
+                        [class.gh-chip-warning]="pr.ChecksStatus === 'Pending'"
+                        [class.gh-chip-neutral]="pr.ChecksStatus === 'Neutral'">
+                        @switch (pr.ChecksStatus) {
+                            @case ('Passing') {
+                                <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+                            }
+                            @case ('Failing') {
+                                <i class="fa-solid fa-circle-xmark" aria-hidden="true"></i>
+                            }
+                            @case ('Pending') {
+                                <i class="fa-solid fa-clock" aria-hidden="true"></i>
+                            }
+                            @default {
+                                <i class="fa-solid fa-circle-minus" aria-hidden="true"></i>
+                            }
+                        }
+                        {{ pr.ChecksStatusLabel }}
+                    </span>
+                }
+
+                @if (pr.ReviewDecisionLabel) {
+                    <span
+                        class="gh-chip"
+                        [class.gh-chip-success]="pr.ReviewDecision === 'APPROVED'"
+                        [class.gh-chip-danger]="pr.ReviewDecision === 'CHANGES_REQUESTED'"
+                        [class.gh-chip-warning]="pr.ReviewDecision === 'REVIEW_REQUIRED'">
+                        <i class="fa-solid fa-user-check" aria-hidden="true"></i>
+                        {{ pr.ReviewDecisionLabel }}
+                    </span>
+                }
+
+                @if (pr.HtmlUrl) {
+                    <a
+                        class="gh-external-link"
+                        [href]="pr.HtmlUrl"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        [attr.aria-label]="'Open pull request ' + pr.NumberLabel + ' on GitHub'">
+                        <i class="fa-brands fa-github" aria-hidden="true"></i>
+                        <span>View on GitHub</span>
+                        <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                    </a>
+                }
+            </div>
+
+            @if (pr.Labels.length > 0 || pr.Milestone) {
+                <div class="gh-badge-labels">
+                    @if (pr.Milestone) {
+                        <span class="gh-milestone-tag">
+                            <i class="fa-solid fa-flag-checkered" aria-hidden="true"></i>
+                            {{ pr.Milestone }}
+                        </span>
+                    }
+                    @for (lbl of pr.Labels; track lbl) {
+                        <span class="gh-label-pill">{{ lbl }}</span>
+                    }
+                </div>
+            }
+        }
+
+        @if (badge.Issue; as issue) {
+            <div class="gh-badge-row">
+                <span class="gh-badge-kind">
+                    <i class="fa-regular fa-circle-dot" aria-hidden="true"></i>
+                    @if (issue.RepositoryFullName) {
+                        <span>{{ issue.RepositoryFullName }}</span>
+                    }
+                    <strong>{{ issue.NumberLabel }}</strong>
+                </span>
+
+                <span
+                    class="gh-chip"
+                    [class.gh-chip-open]="issue.IssueState === 'open'"
+                    [class.gh-chip-merged]="issue.IssueState === 'closed' && issue.StateReason !== 'not_planned' && issue.StateReason !== 'duplicate'"
+                    [class.gh-chip-closed]="issue.IssueState === 'closed' && (issue.StateReason === 'not_planned' || issue.StateReason === 'duplicate')">
+                    {{ issue.StateLabel }}
+                </span>
+
+                @if (issue.HtmlUrl) {
+                    <a
+                        class="gh-external-link"
+                        [href]="issue.HtmlUrl"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        [attr.aria-label]="'Open issue ' + issue.NumberLabel + ' on GitHub'">
+                        <i class="fa-brands fa-github" aria-hidden="true"></i>
+                        <span>View on GitHub</span>
+                        <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                    </a>
+                }
+            </div>
+
+            @if (issue.Labels.length > 0 || issue.Milestone) {
+                <div class="gh-badge-labels">
+                    @if (issue.Milestone) {
+                        <span class="gh-milestone-tag">
+                            <i class="fa-solid fa-flag-checkered" aria-hidden="true"></i>
+                            {{ issue.Milestone }}
+                        </span>
+                    }
+                    @for (lbl of issue.Labels; track lbl) {
+                        <span class="gh-label-pill">{{ lbl }}</span>
+                    }
+                </div>
+            }
+        }
+
+        @if (showOwnershipNotice) {
+            <div class="gh-ownership-banner" role="note">
+                <i class="fa-solid fa-lock" aria-hidden="true"></i>
+                <span>{{ badge.PullOwnedFieldLockNotice }}</span>
+            </div>
+        }
+    </section>
+}

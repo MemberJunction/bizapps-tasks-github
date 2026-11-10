@@ -1,0 +1,13 @@
+[
+  {
+    "fields": {
+      "ApplicationID": "@lookup:MJ: Applications.Name=Tasks",
+      "Name": "NavItem.bizapps-tasks-github.github-sync",
+      "Value": "{\"Label\": \"GitHub Sync\", \"Description\": \"Manage tracked GitHub repositories, Connector Mirror vs REST sync mode, self-service GitHub identity mapping, and webhook health\", \"Icon\": \"fa-brands fa-github\", \"ResourceType\": \"Custom\", \"DriverClass\": \"GitHubTasksAdminResource\", \"Sequence\": 50}",
+      "Comments": "Adds the GitHub Sync console to the BizApps Tasks application. Read by BaseApplication.GetNavItems() in MJ core; removed by this app's teardown."
+    },
+    "primaryKey": {
+      "ID": "A9AC3653-D4B8-4B8F-B93F-3D7475DEAE63"
+    }
+  }
+]
