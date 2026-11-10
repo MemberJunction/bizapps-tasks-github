@@ -31,6 +31,7 @@ Two-way synchronization of planning fields between GitHub and an internal work-m
 | `Task.Name` | **GitHub** | Updated from Issue/PR `title` on every sync/webhook. |
 | `Task.Description` | **GitHub** | Updated from Issue/PR `body` on every sync/webhook. |
 | `Task.Status` & `Task.TaskTypeStatusID` | **GitHub** (except `READY_FOR_FACTORY`) | Mapped deterministically from GitHub state, draft flag, assignees, requested reviewers, and review decision. If a human moves an open item into `READY_FOR_FACTORY`, re-sync preserves `READY_FOR_FACTORY` until the item closes/merges. |
+| `GitHubPullRequestTask.ChecksStatus` & `ReviewDecision` | **GitHub (Advisory Projection)** | Hydrated from GitHub REST (`GET /repos/{owner}/{repo}/commits/{sha}/check-runs` + `/status` and `GET /repos/{owner}/{repo}/pulls/{n}/reviews`) when `GITHUB_TOKEN`/`GH_TOKEN` is configured, with a bounded 5,000-entry LRU fallback map when offline. **Advisory for UI/triage only — never gate merges on these columns; Software Factory's merge gate must query GitHub check runs and reviews directly at merge time.** |
 | `TaskAssignment` (`Primary`, `Reviewer`) | **GitHub** | Reconciled from `assignees` (`Primary`) and `requested_reviewers` (`Reviewer`) via `GitHubIdentity`. |
 | `GitHubPullRequestTask.LinkedIssueTaskID` | **GitHub** | Auto-linked from `Closes #N` / `Fixes #N` / `Resolves #N` in the PR body within the same repository. |
 | `Task.DueAt` | **BizApps Tasks** | Never overwritten by GitHub sync; candidate dates in Markdown become `MJ: Field Suggestions`. |

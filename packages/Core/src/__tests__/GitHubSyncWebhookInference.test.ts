@@ -1595,4 +1595,150 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
         expect(pgTeardown).toContain('__mj_bizappstasks."Task"');
         expect(pgTeardown).toContain("to_regclass('__mj_bizappstasksgithub.\"GitHubPullRequestTask\"')");
     });
+
+    it('queries authoritative GitHub live state across MJAPI restarts/instances and bounds fallback LRU maps', async () => {
+        const h = buildTestHarness();
+        const secret = 'live-state-secret';
+
+        // Seed PR #800 with HeadSha 'sha-live-800'
+        const openRaw = JSON.stringify({
+            action: 'opened',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            pull_request: {
+                number: 800,
+                node_id: 'PR_800',
+                title: 'feat: durable check and review state across restarts',
+                body: 'Verifies live state fetcher',
+                html_url: 'https://github.com/MemberJunction/bizapps-tasks/pull/800',
+                state: 'open',
+                draft: false,
+                head: { ref: 'feat/durable-state', sha: 'sha-live-800' },
+                base: { ref: 'next' },
+                updated_at: '2026-11-10T16:00:00.000Z',
+            },
+        });
+        await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'pull_request',
+            deliveryId: 'pr-800-open',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(openRaw, 'utf8').digest('hex')}`,
+            rawPayload: openRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+
+        // Simulate MJAPI process restart (wipes in-memory _checkStatesBySha and _reviewStatesByPr)
+        // where check A failed and alice-dev requested changes BEFORE the restart,
+        // and now check B succeeds and bob-reviewer approves AFTER the restart on a fresh instance.
+        GitHubWebhookService.Instance.ClearProcessedDeliveries();
+
+        let authoritativeChecksStatus: 'Failing' | 'Passing' = 'Failing';
+        let authoritativeReviewDecision: 'CHANGES_REQUESTED' | 'APPROVED' = 'CHANGES_REQUESTED';
+
+        GitHubWebhookService.Instance.SetLiveStateFetcher({
+            FetchCommitChecksStatus: async (owner, repo, headSha) => {
+                expect(owner).toBe('MemberJunction');
+                expect(repo).toBe('bizapps-tasks');
+                expect(headSha).toBe('sha-live-800');
+                return authoritativeChecksStatus;
+            },
+            FetchPullRequestReviewDecision: async (owner, repo, pullNumber) => {
+                expect(owner).toBe('MemberJunction');
+                expect(repo).toBe('bizapps-tasks');
+                expect(pullNumber).toBe(800);
+                return authoritativeReviewDecision;
+            },
+        });
+
+        // 1. Even though the webhook event arriving after restart is check B succeeding,
+        // the authoritative live state fetcher reports 'Failing' (because check A failed before restart)
+        const checkBPassRaw = JSON.stringify({
+            action: 'completed',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            check_run: {
+                id: 801,
+                name: 'check-b',
+                status: 'completed',
+                conclusion: 'success',
+                head_sha: 'sha-live-800',
+                pull_requests: [{ number: 800 }],
+            },
+        });
+        await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'check_run',
+            deliveryId: 'pr-800-check-b-pass',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(checkBPassRaw, 'utf8').digest('hex')}`,
+            rawPayload: checkBPassRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+
+        let pr800 = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values())[0];
+        expect(pr800.ChecksStatus).toBe('Failing');
+
+        // 2. Even though the webhook event arriving after restart is bob-reviewer approving,
+        // the authoritative live state fetcher reports 'CHANGES_REQUESTED' (because alice-dev requested changes before restart)
+        const bobApproveRaw = JSON.stringify({
+            action: 'submitted',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            pull_request: {
+                number: 800,
+                node_id: 'PR_800',
+                title: 'feat: durable check and review state across restarts',
+                body: 'Verifies live state fetcher',
+                html_url: 'https://github.com/MemberJunction/bizapps-tasks/pull/800',
+                state: 'open',
+                draft: false,
+                head: { ref: 'feat/durable-state', sha: 'sha-live-800' },
+                base: { ref: 'next' },
+                updated_at: '2026-11-10T16:05:00.000Z',
+            },
+            review: {
+                state: 'approved',
+                user: { login: 'bob-reviewer' },
+            },
+        });
+        await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'pull_request_review',
+            deliveryId: 'pr-800-bob-approve',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(bobApproveRaw, 'utf8').digest('hex')}`,
+            rawPayload: bobApproveRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+
+        pr800 = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values())[0];
+        expect(pr800.ReviewDecision).toBe('CHANGES_REQUESTED');
+
+        // 3. Once check A is re-run and alice-dev approves on GitHub, the next events store 'Passing' and 'APPROVED'
+        authoritativeChecksStatus = 'Passing';
+        authoritativeReviewDecision = 'APPROVED';
+
+        await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'check_run',
+            deliveryId: 'pr-800-check-a-rerun-pass',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(checkBPassRaw, 'utf8').digest('hex')}`,
+            rawPayload: checkBPassRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+        await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'pull_request_review',
+            deliveryId: 'pr-800-alice-approve',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(bobApproveRaw, 'utf8').digest('hex')}`,
+            rawPayload: bobApproveRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+
+        pr800 = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values())[0];
+        expect(pr800.ChecksStatus).toBe('Passing');
+        expect(pr800.ReviewDecision).toBe('APPROVED');
+        expect(GitHubWebhookService.Instance.GetTrackedCheckShaCount()).toBe(1);
+        expect(GitHubWebhookService.Instance.GetTrackedPrReviewCount()).toBe(1);
+    });
 });

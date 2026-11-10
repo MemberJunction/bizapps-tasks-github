@@ -159,6 +159,25 @@ export interface IGitHubRepositoryFetcher {
 }
 
 /**
+ * Queries authoritative check-run/commit-status and pull-request review state directly from GitHub
+ * when processing webhook triggers, ensuring durability across server restarts and multi-instance deployments.
+ */
+export interface IGitHubLiveStateFetcher {
+    FetchCommitChecksStatus(
+        owner: string,
+        repo: string,
+        headSha: string,
+    ): Promise<GitHubPullRequestChecksStatus | null>;
+
+    FetchPullRequestReviewDecision(
+        owner: string,
+        repo: string,
+        pullNumber: number,
+        hasRequestedReviewers: boolean,
+    ): Promise<GitHubPullRequestReviewDecision | null | undefined>;
+}
+
+/**
  * Strongly-typed shape of `MJ: Field Suggestions` (IS-A `MJ: Comments` -> `MJ: Conversations`)
  * introduced in MJ 6.3, enabling compile-time safe property access across both standalone 6.2.x CI
  * and 6.3+ host runtimes.

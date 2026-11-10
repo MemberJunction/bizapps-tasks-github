@@ -1359,6 +1359,7 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
             contextUser,
         );
         if (!existingRes.Success) {
+            LogError(`Failed loading TaskAssignments in areTaskAssignmentsEqual for Task '${cleanTaskId}': ${existingRes.ErrorMessage}`);
             return false;
         }
         const gitHubRows = (existingRes.Results ?? []).filter(

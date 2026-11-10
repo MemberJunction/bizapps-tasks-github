@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import {
     IMetadataProvider,
     IRunViewProvider,
+    LogError,
     Metadata,
     RunView,
     UserInfo,
@@ -13,6 +14,7 @@ import type {
     GitHubIssueStateReason,
     GitHubPullRequestChecksStatus,
     GitHubPullRequestReviewDecision,
+    IGitHubLiveStateFetcher,
     NormalizedGitHubIssueInput,
     NormalizedGitHubPullRequestInput,
     NormalizedGitHubSyncItem,
@@ -28,6 +30,219 @@ export type SupportedGitHubWebhookEvent =
     | 'check_run';
 
 const MAX_TRACKED_DELIVERY_IDS = 5000;
+const MAX_TRACKED_CHECK_SHAS = 5000;
+const MAX_TRACKED_PR_REVIEWS = 5000;
+
+interface GitHubRestCheckRunItem {
+    id?: number;
+    name?: string | null;
+    status?: string | null;
+    conclusion?: string | null;
+}
+
+interface GitHubRestCheckRunsResponse {
+    total_count?: number;
+    check_runs?: GitHubRestCheckRunItem[];
+}
+
+interface GitHubRestCombinedStatusResponse {
+    state?: string | null;
+    total_count?: number;
+    statuses?: Array<{ context?: string | null; state?: string | null }>;
+}
+
+interface GitHubRestReviewItem {
+    id?: number;
+    state?: string | null;
+    submitted_at?: string | null;
+    user?: {
+        id?: number | string;
+        login?: string | null;
+    } | null;
+}
+
+/**
+ * Default GitHub REST implementation of `IGitHubLiveStateFetcher`.
+ * When `GITHUB_TOKEN` or `GH_TOKEN` is configured on the server, webhook events for check runs,
+ * check suites, and pull request reviews query GitHub's REST API directly for the authoritative
+ * aggregate state on that commit or pull request — surviving MJAPI restarts and multi-instance
+ * load balancing. When no token is configured, returns `null`/`undefined` so `GitHubWebhookService`
+ * falls back to its bounded in-memory LRU state maps.
+ */
+export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetcher {
+    public constructor(private readonly _explicitToken?: string) {}
+
+    private getAuthToken(): string {
+        if (this._explicitToken !== undefined) {
+            return this._explicitToken.trim();
+        }
+        if (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') {
+            return '';
+        }
+        return process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim() || '';
+    }
+
+    private buildHeaders(token: string): Record<string, string> {
+        return {
+            Accept: 'application/vnd.github+json',
+            Authorization: `Bearer ${token}`,
+            'X-GitHub-Api-Version': '2022-11-28',
+            'User-Agent': 'MemberJunction-BizApps-Tasks-GitHub',
+        };
+    }
+
+    public async FetchCommitChecksStatus(
+        owner: string,
+        repo: string,
+        headSha: string,
+    ): Promise<GitHubPullRequestChecksStatus | null> {
+        const token = this.getAuthToken();
+        if (!token) {
+            return null;
+        }
+        const headers = this.buildHeaders(token);
+        const encodedOwner = encodeURIComponent(owner);
+        const encodedRepo = encodeURIComponent(repo);
+        const encodedSha = encodeURIComponent(headSha);
+
+        const latestRunByName = new Map<string, { id: number; status: GitHubPullRequestChecksStatus }>();
+        for (let page = 1; page <= 10; page += 1) {
+            const url = `https://api.github.com/repos/${encodedOwner}/${encodedRepo}/commits/${encodedSha}/check-runs?per_page=100&page=${page}`;
+            const response = await fetch(url, { headers });
+            if (!response.ok) {
+                throw new Error(`GitHub REST GET ${url} failed with HTTP ${response.status}`);
+            }
+            const body = (await response.json()) as GitHubRestCheckRunsResponse;
+            const runs = body.check_runs ?? [];
+            for (const run of runs) {
+                const nameKey = (run.name?.trim() || String(run.id ?? 'default')).toLowerCase();
+                const runId = typeof run.id === 'number' ? run.id : 0;
+                const existing = latestRunByName.get(nameKey);
+                if (!existing || runId >= existing.id) {
+                    latestRunByName.set(nameKey, {
+                        id: runId,
+                        status: this.mapCheckRunToStatus(run.status, run.conclusion),
+                    });
+                }
+            }
+            if (runs.length < 100) {
+                break;
+            }
+        }
+
+        const statusUrl = `https://api.github.com/repos/${encodedOwner}/${encodedRepo}/commits/${encodedSha}/status`;
+        const statusRes = await fetch(statusUrl, { headers });
+        if (!statusRes.ok) {
+            throw new Error(`GitHub REST GET ${statusUrl} failed with HTTP ${statusRes.status}`);
+        }
+        const combinedStatus = (await statusRes.json()) as GitHubRestCombinedStatusResponse;
+
+        const allStatuses: GitHubPullRequestChecksStatus[] = Array.from(latestRunByName.values()).map((r) => r.status);
+        const commitStatusCount = combinedStatus.total_count ?? combinedStatus.statuses?.length ?? 0;
+        if (commitStatusCount > 0) {
+            const rawState = (combinedStatus.state ?? '').toLowerCase();
+            if (rawState === 'failure' || rawState === 'error') {
+                allStatuses.push('Failing');
+            } else if (rawState === 'pending') {
+                allStatuses.push('Pending');
+            } else if (rawState === 'success') {
+                allStatuses.push('Passing');
+            }
+        }
+
+        if (allStatuses.some((s) => s === 'Failing')) {
+            return 'Failing';
+        }
+        if (allStatuses.some((s) => s === 'Pending')) {
+            return 'Pending';
+        }
+        if (allStatuses.some((s) => s === 'Passing')) {
+            return 'Passing';
+        }
+        return 'Neutral';
+    }
+
+    public async FetchPullRequestReviewDecision(
+        owner: string,
+        repo: string,
+        pullNumber: number,
+        hasRequestedReviewers: boolean,
+    ): Promise<GitHubPullRequestReviewDecision | null | undefined> {
+        const token = this.getAuthToken();
+        if (!token) {
+            return undefined;
+        }
+        const headers = this.buildHeaders(token);
+        const encodedOwner = encodeURIComponent(owner);
+        const encodedRepo = encodeURIComponent(repo);
+
+        const reviewerDecisions = new Map<string, 'APPROVED' | 'CHANGES_REQUESTED'>();
+        for (let page = 1; page <= 10; page += 1) {
+            const url = `https://api.github.com/repos/${encodedOwner}/${encodedRepo}/pulls/${pullNumber}/reviews?per_page=100&page=${page}`;
+            const response = await fetch(url, { headers });
+            if (!response.ok) {
+                throw new Error(`GitHub REST GET ${url} failed with HTTP ${response.status}`);
+            }
+            const reviews = (await response.json()) as GitHubRestReviewItem[];
+            for (const review of reviews) {
+                const reviewerKey = (
+                    review.user?.login?.trim()
+                    || (review.user?.id != null ? String(review.user.id) : '')
+                ).toLowerCase();
+                if (!reviewerKey) {
+                    continue;
+                }
+                const state = (review.state ?? '').toUpperCase();
+                if (state === 'APPROVED') {
+                    reviewerDecisions.set(reviewerKey, 'APPROVED');
+                } else if (state === 'CHANGES_REQUESTED') {
+                    reviewerDecisions.set(reviewerKey, 'CHANGES_REQUESTED');
+                } else if (state === 'DISMISSED') {
+                    reviewerDecisions.delete(reviewerKey);
+                }
+            }
+            if (reviews.length < 100) {
+                break;
+            }
+        }
+
+        const decisions = Array.from(reviewerDecisions.values());
+        if (decisions.some((d) => d === 'CHANGES_REQUESTED')) {
+            return 'CHANGES_REQUESTED';
+        }
+        if (decisions.some((d) => d === 'APPROVED')) {
+            return 'APPROVED';
+        }
+        return hasRequestedReviewers ? 'REVIEW_REQUIRED' : null;
+    }
+
+    private mapCheckRunToStatus(
+        rawStatus: string | null | undefined,
+        rawConclusion: string | null | undefined,
+    ): GitHubPullRequestChecksStatus {
+        const status = (rawStatus ?? '').toLowerCase();
+        const conclusion = (rawConclusion ?? '').toLowerCase();
+        if (status !== 'completed') {
+            return 'Pending';
+        }
+        if (conclusion === 'success') {
+            return 'Passing';
+        }
+        if (conclusion === 'neutral' || conclusion === 'skipped' || conclusion === 'stale') {
+            return 'Neutral';
+        }
+        if (
+            conclusion === 'failure'
+            || conclusion === 'timed_out'
+            || conclusion === 'cancelled'
+            || conclusion === 'action_required'
+            || conclusion === 'startup_failure'
+        ) {
+            return 'Failing';
+        }
+        return 'Neutral';
+    }
+}
 
 interface WebhookUserPayload {
     id?: number | string;
@@ -146,6 +361,7 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
     private readonly _processedDeliveries = new Set<string>();
     private readonly _checkStatesBySha = new Map<string, Map<string, GitHubPullRequestChecksStatus>>();
     private readonly _reviewStatesByPr = new Map<string, Map<string, 'APPROVED' | 'CHANGES_REQUESTED'>>();
+    private _liveStateFetcher: IGitHubLiveStateFetcher = new DefaultGitHubRestLiveStateFetcher();
 
     public constructor() {
         super();
@@ -156,12 +372,43 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
     }
 
     /**
-     * Clears the in-memory processed `X-GitHub-Delivery` set and per-SHA/per-PR aggregation state (primarily used by tests).
+     * Registers a custom `IGitHubLiveStateFetcher` for querying authoritative commit checks and PR reviews
+     * (useful in unit tests or GitHub App installation token setups).
+     */
+    public SetLiveStateFetcher(fetcher: IGitHubLiveStateFetcher | null): void {
+        this._liveStateFetcher = fetcher ?? new DefaultGitHubRestLiveStateFetcher();
+    }
+
+    /**
+     * Resets the live state fetcher back to `DefaultGitHubRestLiveStateFetcher`.
+     */
+    public ClearLiveStateFetcher(): void {
+        this._liveStateFetcher = new DefaultGitHubRestLiveStateFetcher();
+    }
+
+    /**
+     * Clears the in-memory processed `X-GitHub-Delivery` set, bounded per-SHA/per-PR fallback maps,
+     * and custom live state fetcher (primarily used by tests).
      */
     public ClearProcessedDeliveries(): void {
         this._processedDeliveries.clear();
         this._checkStatesBySha.clear();
         this._reviewStatesByPr.clear();
+        this._liveStateFetcher = new DefaultGitHubRestLiveStateFetcher();
+    }
+
+    /**
+     * Returns the current number of commit SHAs tracked in the bounded in-memory check-status fallback map.
+     */
+    public GetTrackedCheckShaCount(): number {
+        return this._checkStatesBySha.size;
+    }
+
+    /**
+     * Returns the current number of pull requests tracked in the bounded in-memory review-decision fallback map.
+     */
+    public GetTrackedPrReviewCount(): number {
+        return this._reviewStatesByPr.size;
     }
 
     /**
@@ -281,7 +528,7 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             return this.handleCheckEvent(cleanEvent, parsed, repository, cleanDeliveryId, params.contextUser, md as IMetadataProvider & IRunViewProvider);
         }
 
-        const normalizedItem = this.extractNormalizedItem(cleanEvent, parsed);
+        const normalizedItem = await this.extractNormalizedItem(cleanEvent, parsed, repository);
         if (!normalizedItem) {
             return {
                 status: 'validation_error',
@@ -390,17 +637,27 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
         }
 
         const shaKey = `${expectedFullName}@${headSha}`;
-        let checkMap = this._checkStatesBySha.get(shaKey);
-        if (!checkMap) {
-            checkMap = new Map<string, GitHubPullRequestChecksStatus>();
-            this._checkStatesBySha.set(shaKey, checkMap);
-        }
+        const checkMap = this.getOrCreateCheckMap(shaKey);
         const checkIdKey = eventName === 'check_run'
             ? `run:${(checkObj.name?.trim() || String(checkObj.id ?? 'default')).toLowerCase()}`
             : `suite:${String(checkObj.app?.id ?? checkObj.app?.slug ?? checkObj.id ?? 'default').toLowerCase()}`;
         checkMap.set(checkIdKey, singleCheckStatus);
 
-        const aggregatedStatus = this.aggregateCheckStatuses(checkMap);
+        let aggregatedStatus: GitHubPullRequestChecksStatus | null = null;
+        try {
+            aggregatedStatus = await this._liveStateFetcher.FetchCommitChecksStatus(
+                repository.Owner,
+                repository.Name,
+                headSha,
+            );
+        } catch (err) {
+            LogError(
+                `Failed fetching authoritative check runs from GitHub REST for '${repository.Owner}/${repository.Name}@${headSha}', falling back to bounded LRU check map: ${err instanceof Error ? err.message : String(err)}`,
+            );
+        }
+        if (aggregatedStatus === null) {
+            aggregatedStatus = this.aggregateCheckStatuses(checkMap);
+        }
 
         const syncResult = await GitHubTaskSyncService.Instance.UpdatePullRequestChecksStatus({
             repository,
@@ -425,6 +682,44 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             status: 'synced',
             syncResult,
         };
+    }
+
+    private getOrCreateCheckMap(shaKey: string): Map<string, GitHubPullRequestChecksStatus> {
+        const existing = this._checkStatesBySha.get(shaKey);
+        if (existing) {
+            // Refresh LRU order
+            this._checkStatesBySha.delete(shaKey);
+            this._checkStatesBySha.set(shaKey, existing);
+            return existing;
+        }
+        if (this._checkStatesBySha.size >= MAX_TRACKED_CHECK_SHAS) {
+            const oldestKey = this._checkStatesBySha.keys().next().value;
+            if (typeof oldestKey === 'string') {
+                this._checkStatesBySha.delete(oldestKey);
+            }
+        }
+        const created = new Map<string, GitHubPullRequestChecksStatus>();
+        this._checkStatesBySha.set(shaKey, created);
+        return created;
+    }
+
+    private getOrCreateReviewMap(prKey: string): Map<string, 'APPROVED' | 'CHANGES_REQUESTED'> {
+        const existing = this._reviewStatesByPr.get(prKey);
+        if (existing) {
+            // Refresh LRU order
+            this._reviewStatesByPr.delete(prKey);
+            this._reviewStatesByPr.set(prKey, existing);
+            return existing;
+        }
+        if (this._reviewStatesByPr.size >= MAX_TRACKED_PR_REVIEWS) {
+            const oldestKey = this._reviewStatesByPr.keys().next().value;
+            if (typeof oldestKey === 'string') {
+                this._reviewStatesByPr.delete(oldestKey);
+            }
+        }
+        const created = new Map<string, 'APPROVED' | 'CHANGES_REQUESTED'>();
+        this._reviewStatesByPr.set(prKey, created);
+        return created;
     }
 
     private aggregateCheckStatuses(
@@ -465,10 +760,11 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
         return refs;
     }
 
-    private extractNormalizedItem(
+    private async extractNormalizedItem(
         eventName: 'issues' | 'pull_request' | 'pull_request_review',
         payload: WebhookEnvelopePayload,
-    ): NormalizedGitHubSyncItem | null {
+        repository: mjBizAppsTasksGitHubGitHubRepositoryEntity,
+    ): Promise<NormalizedGitHubSyncItem | null> {
         if (eventName === 'issues') {
             const issue = payload.issue;
             if (!issue || typeof issue.number !== 'number' || !issue.node_id || !issue.title || !issue.html_url) {
@@ -516,7 +812,7 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
         let reviewDecision: GitHubPullRequestReviewDecision | null | undefined = undefined;
         if (eventName === 'pull_request_review') {
             const reviewState = (payload.review?.state ?? '').toLowerCase();
-            const repoFullName = `${payload.repository?.owner?.login ?? ''}/${payload.repository?.name ?? ''}`.toLowerCase();
+            const repoFullName = `${repository.Owner}/${repository.Name}`.toLowerCase();
             const prKey = `${repoFullName}#${pr.number}`;
             const reviewerKey = (
                 payload.review?.user?.login?.trim()
@@ -524,11 +820,7 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
                 || 'default'
             ).toLowerCase();
 
-            let reviewerMap = this._reviewStatesByPr.get(prKey);
-            if (!reviewerMap) {
-                reviewerMap = new Map<string, 'APPROVED' | 'CHANGES_REQUESTED'>();
-                this._reviewStatesByPr.set(prKey, reviewerMap);
-            }
+            const reviewerMap = this.getOrCreateReviewMap(prKey);
 
             if (reviewState === 'approved') {
                 reviewerMap.set(reviewerKey, 'APPROVED');
@@ -539,14 +831,32 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             }
 
             if (reviewState === 'approved' || reviewState === 'changes_requested' || reviewState === 'dismissed') {
-                const decisions = Array.from(reviewerMap.values());
-                if (decisions.some((d) => d === 'CHANGES_REQUESTED')) {
-                    reviewDecision = 'CHANGES_REQUESTED';
-                } else if (decisions.some((d) => d === 'APPROVED')) {
-                    reviewDecision = 'APPROVED';
+                const hasRemainingReviewers = (pr.requested_reviewers?.length ?? 0) > 0;
+                let liveDecision: GitHubPullRequestReviewDecision | null | undefined = undefined;
+                try {
+                    liveDecision = await this._liveStateFetcher.FetchPullRequestReviewDecision(
+                        repository.Owner,
+                        repository.Name,
+                        pr.number,
+                        hasRemainingReviewers,
+                    );
+                } catch (err) {
+                    LogError(
+                        `Failed fetching authoritative PR reviews from GitHub REST for '${repository.Owner}/${repository.Name}#${pr.number}', falling back to bounded LRU review map: ${err instanceof Error ? err.message : String(err)}`,
+                    );
+                }
+
+                if (liveDecision !== undefined) {
+                    reviewDecision = liveDecision;
                 } else {
-                    const hasRemainingReviewers = (pr.requested_reviewers?.length ?? 0) > 0;
-                    reviewDecision = hasRemainingReviewers ? 'REVIEW_REQUIRED' : null;
+                    const decisions = Array.from(reviewerMap.values());
+                    if (decisions.some((d) => d === 'CHANGES_REQUESTED')) {
+                        reviewDecision = 'CHANGES_REQUESTED';
+                    } else if (decisions.some((d) => d === 'APPROVED')) {
+                        reviewDecision = 'APPROVED';
+                    } else {
+                        reviewDecision = hasRemainingReviewers ? 'REVIEW_REQUIRED' : null;
+                    }
                 }
             }
             // Note: `commented` reviews do not alter aggregate reviewDecision (`undefined` preserves stored decision)
