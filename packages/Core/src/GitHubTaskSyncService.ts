@@ -1,11 +1,12 @@
 import {
     IMetadataProvider,
     IRunViewProvider,
+    LogError,
     Metadata,
     RunView,
     UserInfo,
 } from '@memberjunction/core';
-import { BaseSingleton, UUIDsEqual } from '@memberjunction/global';
+import { BaseSingleton, EscapeSQLString, UUIDsEqual } from '@memberjunction/global';
 import type {
     mjBizAppsTasksTaskAssignmentEntity,
     mjBizAppsTasksTaskEntity,
@@ -21,12 +22,14 @@ import type {
 } from '@mj-biz-apps/tasks-github-entities';
 import { GitHubFieldOwnershipPolicy } from './GitHubFieldOwnershipPolicy.js';
 import { GitHubTaskInferenceService, TASKS_ENTITY_NAME } from './GitHubTaskInferenceService.js';
-import { AssertValidUUID, EscapeSqlLiteral } from './sql-safety.js';
+import { AssertValidUUID } from './sql-safety.js';
 import type {
+    GitHubIssueStateReason,
     IGitHubRepositoryFetcher,
     NormalizedGitHubIssueInput,
     NormalizedGitHubPullRequestInput,
     NormalizedGitHubSyncItem,
+    NormalizedGitHubUserRef,
     RepositorySyncSummary,
     SingleItemSyncResult,
 } from './types.js';
@@ -52,7 +55,186 @@ interface SyncReferenceContext {
     prStatusesByCode: Map<string, string>;
     primaryRoleId: string;
     reviewerRoleId: string;
-    personIdByLowerLogin: Map<string, string>;
+    personIdByUserId: Map<string, { login: string; personId: string }>;
+    identityByLowerLogin: Map<string, { personId: string; userId: string | null }>;
+}
+
+interface PreloadedRepoExtensions {
+    issuesByNumber: Map<number, mjBizAppsTasksGitHubGitHubIssueTaskEntity>;
+    issuesByNodeId: Map<string, mjBizAppsTasksGitHubGitHubIssueTaskEntity>;
+    prsByNumber: Map<number, mjBizAppsTasksGitHubGitHubPullRequestTaskEntity>;
+    prsByNodeId: Map<string, mjBizAppsTasksGitHubGitHubPullRequestTaskEntity>;
+}
+
+interface GitHubRestUserJson {
+    id?: number | string;
+    node_id?: string;
+    login?: string;
+}
+
+interface GitHubRestLabelJson {
+    name?: string;
+}
+
+interface GitHubRestMilestoneJson {
+    title?: string | null;
+    due_on?: string | null;
+}
+
+interface GitHubRestIssueJson {
+    number?: number;
+    node_id?: string;
+    title?: string;
+    body?: string | null;
+    html_url?: string;
+    state?: string;
+    state_reason?: string | null;
+    labels?: GitHubRestLabelJson[];
+    milestone?: GitHubRestMilestoneJson | null;
+    user?: GitHubRestUserJson | null;
+    assignees?: GitHubRestUserJson[];
+    updated_at?: string | null;
+    pull_request?: Record<string, string | null>;
+}
+
+interface GitHubRestPullRequestJson {
+    number?: number;
+    node_id?: string;
+    title?: string;
+    body?: string | null;
+    html_url?: string;
+    state?: string;
+    draft?: boolean;
+    merged?: boolean;
+    merged_at?: string | null;
+    head?: { ref?: string; sha?: string } | null;
+    base?: { ref?: string } | null;
+    user?: GitHubRestUserJson | null;
+    assignees?: GitHubRestUserJson[];
+    requested_reviewers?: GitHubRestUserJson[];
+    changed_files?: number | null;
+    additions?: number | null;
+    deletions?: number | null;
+    labels?: GitHubRestLabelJson[];
+    milestone?: GitHubRestMilestoneJson | null;
+    updated_at?: string | null;
+}
+
+/**
+ * Default GitHub REST API fetcher used when `GITHUB_TOKEN` (or `GH_TOKEN`) is configured on the host
+ * and no custom `IGitHubRepositoryFetcher` has been registered.
+ */
+export class DefaultGitHubRestRepositoryFetcher implements IGitHubRepositoryFetcher {
+    public async FetchRepositoryItems(
+        owner: string,
+        name: string,
+    ): Promise<NormalizedGitHubSyncItem[]> {
+        const token = (process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? '').trim();
+        if (!token) {
+            return [];
+        }
+        const headers: Record<string, string> = {
+            Accept: 'application/vnd.github+json',
+            Authorization: `Bearer ${token}`,
+            'X-GitHub-Api-Version': '2022-11-28',
+        };
+        const baseUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+        const [issuesRes, pullsRes] = await Promise.all([
+            fetch(`${baseUrl}/issues?state=all&per_page=100`, { headers }),
+            fetch(`${baseUrl}/pulls?state=all&per_page=100`, { headers }),
+        ]);
+
+        if (!issuesRes.ok) {
+            throw new Error(`GitHub REST API error fetching issues for '${owner}/${name}': HTTP ${issuesRes.status}`);
+        }
+        if (!pullsRes.ok) {
+            throw new Error(`GitHub REST API error fetching pull requests for '${owner}/${name}': HTTP ${pullsRes.status}`);
+        }
+
+        const rawIssues = (await issuesRes.json()) as GitHubRestIssueJson[];
+        const rawPulls = (await pullsRes.json()) as GitHubRestPullRequestJson[];
+        const normalized: NormalizedGitHubSyncItem[] = [];
+
+        for (const issue of rawIssues) {
+            // GitHub's /issues endpoint also returns PRs; skip entries with a `pull_request` key
+            if (issue.pull_request != null) continue;
+            if (typeof issue.number !== 'number' || !issue.node_id || !issue.title || !issue.html_url) continue;
+            const rawReason = issue.state_reason ?? null;
+            const validReason: GitHubIssueStateReason | null =
+                rawReason === 'completed' || rawReason === 'not_planned' || rawReason === 'reopened' || rawReason === 'duplicate'
+                    ? rawReason
+                    : null;
+            const assignees: NormalizedGitHubUserRef[] = (issue.assignees ?? [])
+                .filter((a) => typeof a.login === 'string' && a.login.trim().length > 0)
+                .map((a) => ({
+                    login: (a.login ?? '').trim(),
+                    userId: a.id != null ? String(a.id) : (a.node_id ?? null),
+                }));
+            normalized.push({
+                kind: 'issue',
+                number: issue.number,
+                nodeId: issue.node_id,
+                title: issue.title,
+                body: issue.body ?? null,
+                htmlUrl: issue.html_url,
+                state: issue.state === 'closed' ? 'closed' : 'open',
+                stateReason: validReason,
+                labels: (issue.labels ?? []).map((l) => l.name?.trim() ?? '').filter((n) => n.length > 0),
+                milestoneTitle: issue.milestone?.title ?? null,
+                milestoneDueAt: issue.milestone?.due_on ?? null,
+                authorLogin: issue.user?.login ?? null,
+                authorUserId: issue.user?.id != null ? String(issue.user.id) : (issue.user?.node_id ?? null),
+                assigneeLogins: assignees.map((a) => a.login),
+                assignees,
+                updatedAt: issue.updated_at ?? null,
+            });
+        }
+
+        for (const pr of rawPulls) {
+            if (typeof pr.number !== 'number' || !pr.node_id || !pr.title || !pr.html_url) continue;
+            const assignees: NormalizedGitHubUserRef[] = (pr.assignees ?? [])
+                .filter((a) => typeof a.login === 'string' && a.login.trim().length > 0)
+                .map((a) => ({
+                    login: (a.login ?? '').trim(),
+                    userId: a.id != null ? String(a.id) : (a.node_id ?? null),
+                }));
+            const requestedReviewers: NormalizedGitHubUserRef[] = (pr.requested_reviewers ?? [])
+                .filter((r) => typeof r.login === 'string' && r.login.trim().length > 0)
+                .map((r) => ({
+                    login: (r.login ?? '').trim(),
+                    userId: r.id != null ? String(r.id) : (r.node_id ?? null),
+                }));
+            normalized.push({
+                kind: 'pull_request',
+                number: pr.number,
+                nodeId: pr.node_id,
+                title: pr.title,
+                body: pr.body ?? null,
+                htmlUrl: pr.html_url,
+                state: pr.merged || pr.merged_at ? 'merged' : (pr.state === 'closed' ? 'closed' : 'open'),
+                isDraft: Boolean(pr.draft),
+                headBranch: pr.head?.ref ?? null,
+                headSha: pr.head?.sha ?? null,
+                baseBranch: pr.base?.ref ?? null,
+                authorLogin: pr.user?.login ?? null,
+                authorUserId: pr.user?.id != null ? String(pr.user.id) : (pr.user?.node_id ?? null),
+                assigneeLogins: assignees.map((a) => a.login),
+                assignees,
+                requestedReviewerLogins: requestedReviewers.map((r) => r.login),
+                requestedReviewers,
+                changedFiles: typeof pr.changed_files === 'number' ? pr.changed_files : undefined,
+                additions: typeof pr.additions === 'number' ? pr.additions : undefined,
+                deletions: typeof pr.deletions === 'number' ? pr.deletions : undefined,
+                labels: (pr.labels ?? []).map((l) => l.name?.trim() ?? '').filter((n) => n.length > 0),
+                milestoneTitle: pr.milestone?.title ?? null,
+                milestoneDueAt: pr.milestone?.due_on ?? null,
+                mergedAt: pr.merged_at ?? null,
+                updatedAt: pr.updated_at ?? null,
+            });
+        }
+
+        return normalized;
+    }
 }
 
 export interface SyncSingleItemOptions {
@@ -60,6 +242,7 @@ export interface SyncSingleItemOptions {
     item: NormalizedGitHubSyncItem;
     contextUser: UserInfo;
     runInference?: boolean;
+    queueInference?: boolean;
     provider?: IMetadataProvider & IRunViewProvider;
 }
 
@@ -73,6 +256,8 @@ export interface SyncRepositoryOptions {
 
 export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> {
     private _fetcher: IGitHubRepositoryFetcher | null = null;
+    private readonly _defaultFetcher = new DefaultGitHubRestRepositoryFetcher();
+    private readonly _itemLocks = new Map<string, Promise<void>>();
 
     public constructor() {
         super();
@@ -137,10 +322,9 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
                 continue;
             }
 
+            const activeFetcher = this._fetcher ?? this._defaultFetcher;
             const items = options.items
-                ?? (this._fetcher
-                    ? await this._fetcher.FetchRepositoryItems(repo.Owner, repo.Name, options.contextUser, md)
-                    : []);
+                ?? (await activeFetcher.FetchRepositoryItems(repo.Owner, repo.Name, options.contextUser, md));
 
             const summary: RepositorySyncSummary = {
                 repositoryId: repo.ID,
@@ -153,6 +337,10 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
                 taskIds: [],
             };
 
+            const preloaded = items.length > 0
+                ? await this.preloadRepositoryExtensions(repo.ID, rv, options.contextUser)
+                : undefined;
+
             for (const item of items) {
                 const res = await this.syncSingleItemWithContext(
                     repo,
@@ -160,8 +348,10 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
                     refContext,
                     options.contextUser,
                     options.runInference !== false,
+                    false,
                     md,
                     rv,
+                    preloaded,
                 );
                 if (res.action === 'created') {
                     summary.created += 1;
@@ -195,7 +385,8 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
             options.item,
             refContext,
             options.contextUser,
-            options.runInference !== false,
+            options.runInference === true,
+            options.queueInference === true,
             md,
             rv,
         );
@@ -207,17 +398,70 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         refContext: SyncReferenceContext,
         contextUser: UserInfo,
         runInference: boolean,
+        queueInference: boolean,
         md: IMetadataProvider,
         rv: RunView,
+        preloaded?: PreloadedRepoExtensions,
     ): Promise<SingleItemSyncResult> {
         if (!repository.IsTracked) {
             return { action: 'skipped', reason: 'Repository is not tracked' };
         }
 
-        if (item.kind === 'issue') {
-            return this.syncIssueItem(repository, item, refContext, contextUser, runInference, md, rv);
+        const validation = GitHubFieldOwnershipPolicy.ValidateNormalizedGitHubSyncItem(
+            item,
+            `${repository.Owner}/${repository.Name}`,
+        );
+        if (!validation.valid || !validation.item) {
+            throw new Error(validation.error ?? 'Invalid NormalizedGitHubSyncItem');
         }
-        return this.syncPullRequestItem(repository, item, refContext, contextUser, runInference, md, rv);
+        const validItem = validation.item;
+        const lockKey = `${repository.ID.toLowerCase()}:${validItem.kind}:${validItem.number}`;
+
+        return this.runWithItemLock(lockKey, async () => {
+            if (validItem.kind === 'issue') {
+                return this.syncIssueItem(
+                    repository,
+                    validItem,
+                    refContext,
+                    contextUser,
+                    runInference,
+                    queueInference,
+                    md,
+                    rv,
+                    preloaded,
+                );
+            }
+            return this.syncPullRequestItem(
+                repository,
+                validItem,
+                refContext,
+                contextUser,
+                runInference,
+                queueInference,
+                md,
+                rv,
+                preloaded,
+            );
+        });
+    }
+
+    private async runWithItemLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+        const previous = this._itemLocks.get(key) ?? Promise.resolve();
+        let release!: () => void;
+        const current = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const chained = previous.then(() => current);
+        this._itemLocks.set(key, chained);
+        await previous;
+        try {
+            return await fn();
+        } finally {
+            release();
+            if (this._itemLocks.get(key) === chained) {
+                this._itemLocks.delete(key);
+            }
+        }
     }
 
     private async syncIssueItem(
@@ -226,11 +470,36 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         refContext: SyncReferenceContext,
         contextUser: UserInfo,
         runInference: boolean,
+        queueInference: boolean,
         md: IMetadataProvider,
         rv: RunView,
+        preloaded?: PreloadedRepoExtensions,
+        isRetryAfterCollision = false,
     ): Promise<SingleItemSyncResult> {
-        const existingExt = await this.findExistingIssueExtension(repository.ID, issue.number, issue.nodeId, rv, contextUser);
-        const mappedPrimaryPeople = this.resolveMappedPeople(issue.assigneeLogins ?? [], refContext.personIdByLowerLogin);
+        const existingExt =
+            (!isRetryAfterCollision ? this.findPreloadedIssueExtension(preloaded, issue.number, issue.nodeId) : null)
+            ?? (await this.findExistingIssueExtension(repository.ID, issue.number, issue.nodeId, rv, contextUser));
+
+        const incomingUpdatedAt = this.parseOptionalDate(issue.updatedAt);
+        const existingUpdatedAt = this.parseOptionalDate(existingExt?.GitHubUpdatedAt);
+        if (
+            existingExt
+            && incomingUpdatedAt != null
+            && existingUpdatedAt != null
+            && incomingUpdatedAt.getTime() < existingUpdatedAt.getTime()
+        ) {
+            return {
+                action: 'skipped',
+                reason: 'Stale payload older than stored GitHubUpdatedAt',
+                taskId: existingExt.ID,
+            };
+        }
+
+        const mappedPrimaryPeople = this.resolveMappedPeople(
+            issue.assignees ?? [],
+            issue.assigneeLogins ?? [],
+            refContext,
+        );
 
         if (!existingExt && repository.ImportRule === 'AssignedOnly' && mappedPrimaryPeople.length === 0) {
             return {
@@ -304,14 +573,47 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         issueExt.MilestoneDueAt = milestoneDate;
         issueExt.AuthorLogin = issue.authorLogin ?? null;
         issueExt.BodyHash = newBodyHash;
-        issueExt.GitHubUpdatedAt = this.parseOptionalDate(issue.updatedAt);
+        issueExt.GitHubUpdatedAt = incomingUpdatedAt ?? existingUpdatedAt;
         issueExt.LastSyncedAt = new Date();
 
         const extSaved = await issueExt.Save();
         if (!extSaved) {
-            throw new Error(
-                `Failed saving GitHubIssueTask extension for #${issue.number}: ${issueExt.LatestResult?.CompleteMessage ?? 'save failed'}`,
-            );
+            if (isNew && !isRetryAfterCollision) {
+                // Recover cleanly from cross-process UX_GitHubIssueTask_Repo_Number collision:
+                // delete the newly created orphan Task and update the winning existing row.
+                await task.Delete();
+                const collided = await this.findExistingIssueExtension(
+                    repository.ID,
+                    issue.number,
+                    issue.nodeId,
+                    rv,
+                    contextUser,
+                );
+                if (collided) {
+                    return this.syncIssueItem(
+                        repository,
+                        issue,
+                        refContext,
+                        contextUser,
+                        runInference,
+                        queueInference,
+                        md,
+                        rv,
+                        undefined,
+                        true,
+                    );
+                }
+            }
+            const errMsg = `Failed saving GitHubIssueTask extension for #${issue.number}: ${issueExt.LatestResult?.CompleteMessage ?? 'save failed'}`;
+            LogError(errMsg);
+            throw new Error(errMsg);
+        }
+
+        if (preloaded) {
+            preloaded.issuesByNumber.set(issue.number, issueExt);
+            if (issue.nodeId) {
+                preloaded.issuesByNodeId.set(issue.nodeId, issueExt);
+            }
         }
 
         await this.reconcileTaskAssignments(
@@ -337,20 +639,33 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         }
 
         let inferredSuggestionsCreated = 0;
+        const inferenceOptions = {
+            task,
+            repositoryId: repository.ID,
+            repositoryFullName: `${repository.Owner}/${repository.Name}`,
+            itemKind: 'issue' as const,
+            number: issue.number,
+            title: issue.title,
+            body: issue.body,
+            milestoneDueAt: milestoneDate,
+            structuredLogins: mappedPrimaryPeople.map((p) => p.login),
+            contextUser,
+            provider: md as IMetadataProvider & IRunViewProvider,
+        };
         if (runInference && bodyChanged) {
-            const infRes = await GitHubTaskInferenceService.Instance.InferTaskPlanningFields({
-                task,
-                repositoryFullName: `${repository.Owner}/${repository.Name}`,
-                itemKind: 'issue',
-                number: issue.number,
-                title: issue.title,
-                body: issue.body,
-                milestoneDueAt: milestoneDate,
-                structuredLogins: issue.assigneeLogins ?? [],
-                contextUser,
-                provider: md as IMetadataProvider & IRunViewProvider,
-            });
+            const infRes = await GitHubTaskInferenceService.Instance.InferTaskPlanningFields(inferenceOptions);
             inferredSuggestionsCreated = infRes.createdCount;
+        } else if (queueInference && bodyChanged) {
+            const hasMappedAuthorOrAssignee =
+                mappedPrimaryPeople.length > 0
+                || this.resolveMappedPeople(
+                    issue.authorLogin ? [{ login: issue.authorLogin, userId: issue.authorUserId }] : [],
+                    [],
+                    refContext,
+                ).length > 0;
+            if (hasMappedAuthorOrAssignee) {
+                GitHubTaskInferenceService.Instance.QueueDebouncedInference(inferenceOptions);
+            }
         }
 
         return {
@@ -368,14 +683,40 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         refContext: SyncReferenceContext,
         contextUser: UserInfo,
         runInference: boolean,
+        queueInference: boolean,
         md: IMetadataProvider,
         rv: RunView,
+        preloaded?: PreloadedRepoExtensions,
+        isRetryAfterCollision = false,
     ): Promise<SingleItemSyncResult> {
-        const existingExt = await this.findExistingPrExtension(repository.ID, pr.number, pr.nodeId, rv, contextUser);
-        const mappedPrimaryPeople = this.resolveMappedPeople(pr.assigneeLogins ?? [], refContext.personIdByLowerLogin);
+        const existingExt =
+            (!isRetryAfterCollision ? this.findPreloadedPrExtension(preloaded, pr.number, pr.nodeId) : null)
+            ?? (await this.findExistingPrExtension(repository.ID, pr.number, pr.nodeId, rv, contextUser));
+
+        const incomingUpdatedAt = this.parseOptionalDate(pr.updatedAt);
+        const existingUpdatedAt = this.parseOptionalDate(existingExt?.GitHubUpdatedAt);
+        if (
+            existingExt
+            && incomingUpdatedAt != null
+            && existingUpdatedAt != null
+            && incomingUpdatedAt.getTime() < existingUpdatedAt.getTime()
+        ) {
+            return {
+                action: 'skipped',
+                reason: 'Stale payload older than stored GitHubUpdatedAt',
+                taskId: existingExt.ID,
+            };
+        }
+
+        const mappedPrimaryPeople = this.resolveMappedPeople(
+            pr.assignees ?? [],
+            pr.assigneeLogins ?? [],
+            refContext,
+        );
         const mappedReviewerPeople = this.resolveMappedPeople(
+            pr.requestedReviewers ?? [],
             pr.requestedReviewerLogins ?? [],
-            refContext.personIdByLowerLogin,
+            refContext,
         );
 
         if (
@@ -403,7 +744,12 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
             }
         }
 
-        const typeStatusCode = GitHubFieldOwnershipPolicy.MapPullRequestTypeStatusCode(pr);
+        const effectiveReviewDecision =
+            pr.reviewDecision !== undefined ? pr.reviewDecision : (existingExt?.ReviewDecision ?? null);
+        const typeStatusCode = GitHubFieldOwnershipPolicy.MapPullRequestTypeStatusCode({
+            ...pr,
+            reviewDecision: effectiveReviewDecision,
+        });
         const preservedFactoryStatus = !isNew
             && pr.state === 'open'
             && this.isReadyForFactoryStatus(task.TaskTypeStatusID, refContext.prStatusesByCode);
@@ -441,13 +787,15 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         let linkedIssueTaskId: string | null = prExt.LinkedIssueTaskID;
         const targetIssueNumber = pr.linkedIssueNumber ?? this.extractLinkedIssueNumberFromBody(pr.body);
         if (targetIssueNumber != null) {
-            const linkedIssueExt = await this.findExistingIssueExtension(
-                repository.ID,
-                targetIssueNumber,
-                '',
-                rv,
-                contextUser,
-            );
+            const linkedIssueExt =
+                this.findPreloadedIssueExtension(preloaded, targetIssueNumber, '')
+                ?? (await this.findExistingIssueExtension(
+                    repository.ID,
+                    targetIssueNumber,
+                    '',
+                    rv,
+                    contextUser,
+                ));
             if (linkedIssueExt) {
                 linkedIssueTaskId = linkedIssueExt.ID;
             }
@@ -468,25 +816,79 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         prExt.HeadSha = pr.headSha ?? null;
         prExt.BaseBranch = pr.baseBranch ?? null;
         prExt.AuthorLogin = pr.authorLogin ?? null;
-        prExt.ReviewDecision = pr.reviewDecision ?? null;
-        prExt.ChecksStatus = pr.checksStatus ?? null;
-        prExt.ChangedFiles = pr.changedFiles ?? null;
-        prExt.Additions = pr.additions ?? null;
-        prExt.Deletions = pr.deletions ?? null;
+
+        // Only overwrite ReviewDecision, ChecksStatus, ChangedFiles, Additions, Deletions when carried by the event
+        if (pr.reviewDecision !== undefined) {
+            prExt.ReviewDecision = pr.reviewDecision;
+        } else if (isNew) {
+            prExt.ReviewDecision = null;
+        }
+        if (pr.checksStatus !== undefined) {
+            prExt.ChecksStatus = pr.checksStatus;
+        } else if (isNew) {
+            prExt.ChecksStatus = null;
+        }
+        if (pr.changedFiles !== undefined) {
+            prExt.ChangedFiles = pr.changedFiles;
+        } else if (isNew) {
+            prExt.ChangedFiles = null;
+        }
+        if (pr.additions !== undefined) {
+            prExt.Additions = pr.additions;
+        } else if (isNew) {
+            prExt.Additions = null;
+        }
+        if (pr.deletions !== undefined) {
+            prExt.Deletions = pr.deletions;
+        } else if (isNew) {
+            prExt.Deletions = null;
+        }
+
         prExt.Labels = pr.labels ? JSON.stringify(pr.labels) : null;
         prExt.Milestone = pr.milestoneTitle ?? null;
         prExt.MilestoneDueAt = milestoneDate;
         prExt.MergedAt = mergedDate;
         prExt.LinkedIssueTaskID = linkedIssueTaskId;
         prExt.BodyHash = newBodyHash;
-        prExt.GitHubUpdatedAt = this.parseOptionalDate(pr.updatedAt);
+        prExt.GitHubUpdatedAt = incomingUpdatedAt ?? existingUpdatedAt;
         prExt.LastSyncedAt = new Date();
 
         const extSaved = await prExt.Save();
         if (!extSaved) {
-            throw new Error(
-                `Failed saving GitHubPullRequestTask extension for #${pr.number}: ${prExt.LatestResult?.CompleteMessage ?? 'save failed'}`,
-            );
+            if (isNew && !isRetryAfterCollision) {
+                await task.Delete();
+                const collided = await this.findExistingPrExtension(
+                    repository.ID,
+                    pr.number,
+                    pr.nodeId,
+                    rv,
+                    contextUser,
+                );
+                if (collided) {
+                    return this.syncPullRequestItem(
+                        repository,
+                        pr,
+                        refContext,
+                        contextUser,
+                        runInference,
+                        queueInference,
+                        md,
+                        rv,
+                        undefined,
+                        true,
+                    );
+                }
+            }
+            const errMsg = `Failed saving GitHubPullRequestTask extension for #${pr.number}: ${prExt.LatestResult?.CompleteMessage ?? 'save failed'}`;
+            LogError(errMsg);
+            throw new Error(errMsg);
+        }
+
+        if (preloaded) {
+            preloaded.prsByNumber.set(pr.number, prExt);
+            if (pr.nodeId) {
+                preloaded.prsByNodeId.set(pr.nodeId, prExt);
+            }
         }
 
         await this.reconcileTaskAssignments(
@@ -512,24 +914,38 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         }
 
         let inferredSuggestionsCreated = 0;
+        const structuredLogins = [
+            ...mappedPrimaryPeople.map((p) => p.login),
+            ...mappedReviewerPeople.map((p) => p.login),
+        ];
+        const inferenceOptions = {
+            task,
+            repositoryId: repository.ID,
+            repositoryFullName: `${repository.Owner}/${repository.Name}`,
+            itemKind: 'pull_request' as const,
+            number: pr.number,
+            title: pr.title,
+            body: pr.body,
+            milestoneDueAt: milestoneDate,
+            structuredLogins,
+            contextUser,
+            provider: md as IMetadataProvider & IRunViewProvider,
+        };
         if (runInference && bodyChanged) {
-            const structuredLogins = [
-                ...(pr.assigneeLogins ?? []),
-                ...(pr.requestedReviewerLogins ?? []),
-            ];
-            const infRes = await GitHubTaskInferenceService.Instance.InferTaskPlanningFields({
-                task,
-                repositoryFullName: `${repository.Owner}/${repository.Name}`,
-                itemKind: 'pull_request',
-                number: pr.number,
-                title: pr.title,
-                body: pr.body,
-                milestoneDueAt: milestoneDate,
-                structuredLogins,
-                contextUser,
-                provider: md as IMetadataProvider & IRunViewProvider,
-            });
+            const infRes = await GitHubTaskInferenceService.Instance.InferTaskPlanningFields(inferenceOptions);
             inferredSuggestionsCreated = infRes.createdCount;
+        } else if (queueInference && bodyChanged) {
+            const hasMappedAuthorOrParticipant =
+                mappedPrimaryPeople.length > 0
+                || mappedReviewerPeople.length > 0
+                || this.resolveMappedPeople(
+                    pr.authorLogin ? [{ login: pr.authorLogin, userId: pr.authorUserId }] : [],
+                    [],
+                    refContext,
+                ).length > 0;
+            if (hasMappedAuthorOrParticipant) {
+                GitHubTaskInferenceService.Instance.QueueDebouncedInference(inferenceOptions);
+            }
         }
 
         return {
@@ -550,20 +966,45 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
     }
 
     private resolveMappedPeople(
-        logins: string[],
-        personIdByLowerLogin: Map<string, string>,
+        userRefs: NormalizedGitHubUserRef[],
+        fallbackLogins: string[],
+        refContext: SyncReferenceContext,
     ): Array<{ login: string; personId: string }> {
+        const candidates: NormalizedGitHubUserRef[] =
+            userRefs.length > 0
+                ? userRefs
+                : fallbackLogins.map((login) => ({ login, userId: null }));
+
         const seenPersonIds = new Set<string>();
         const mapped: Array<{ login: string; personId: string }> = [];
-        for (const rawLogin of logins) {
-            const clean = rawLogin.trim();
-            if (!clean) continue;
-            const personId = personIdByLowerLogin.get(clean.toLowerCase());
+
+        for (const candidate of candidates) {
+            const cleanLogin = candidate.login.trim();
+            const cleanUserId = candidate.userId?.trim() ?? '';
+            let personId: string | undefined;
+
+            if (cleanUserId.length > 0) {
+                const byUserId = refContext.personIdByUserId.get(cleanUserId);
+                if (byUserId) {
+                    personId = byUserId.personId;
+                } else if (cleanLogin.length > 0) {
+                    const byLogin = refContext.identityByLowerLogin.get(cleanLogin.toLowerCase());
+                    if (byLogin) {
+                        // Only fall back to login match when the stored GitHubIdentity has no conflicting GitHubUserID
+                        if (!byLogin.userId || byLogin.userId === cleanUserId) {
+                            personId = byLogin.personId;
+                        }
+                    }
+                }
+            } else if (cleanLogin.length > 0) {
+                personId = refContext.identityByLowerLogin.get(cleanLogin.toLowerCase())?.personId;
+            }
+
             if (!personId) continue;
             const key = personId.toLowerCase();
             if (seenPersonIds.has(key)) continue;
             seenPersonIds.add(key);
-            mapped.push({ login: clean, personId });
+            mapped.push({ login: cleanLogin || cleanUserId, personId });
         }
         return mapped;
     }
@@ -616,9 +1057,9 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
                 assignment.RoleNotes = `${GITHUB_ASSIGNMENT_NOTE_PREFIX}${target.login})`;
                 const saved = await assignment.Save();
                 if (!saved) {
-                    throw new Error(
-                        `Failed creating TaskAssignment for '@${target.login}': ${assignment.LatestResult?.CompleteMessage ?? 'save failed'}`,
-                    );
+                    const msg = `Failed creating TaskAssignment for '@${target.login}': ${assignment.LatestResult?.CompleteMessage ?? 'save failed'}`;
+                    LogError(msg);
+                    throw new Error(msg);
                 }
             }
         }
@@ -635,9 +1076,91 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
                     && UUIDsEqual(row.RoleID, d.roleId),
             );
             if (!stillDesired) {
-                await row.Delete();
+                const deleted = await row.Delete();
+                if (!deleted) {
+                    const msg = `Failed deleting stale TaskAssignment '${row.ID}': ${row.LatestResult?.CompleteMessage ?? 'delete failed'}`;
+                    LogError(msg);
+                    throw new Error(msg);
+                }
             }
         }
+    }
+
+    private async preloadRepositoryExtensions(
+        repositoryId: string,
+        rv: RunView,
+        contextUser: UserInfo,
+    ): Promise<PreloadedRepoExtensions> {
+        const cleanRepoId = AssertValidUUID(repositoryId, 'repositoryId');
+        const [issuesRes, prsRes] = await rv.RunViews([
+            {
+                EntityName: GITHUB_ISSUE_TASKS_ENTITY,
+                ExtraFilter: `RepositoryID = '${cleanRepoId}'`,
+                ResultType: 'entity_object',
+            },
+            {
+                EntityName: GITHUB_PR_TASKS_ENTITY,
+                ExtraFilter: `RepositoryID = '${cleanRepoId}'`,
+                ResultType: 'entity_object',
+            },
+        ], contextUser);
+
+        const issuesByNumber = new Map<number, mjBizAppsTasksGitHubGitHubIssueTaskEntity>();
+        const issuesByNodeId = new Map<string, mjBizAppsTasksGitHubGitHubIssueTaskEntity>();
+        for (const row of (issuesRes?.Results as mjBizAppsTasksGitHubGitHubIssueTaskEntity[] | undefined) ?? []) {
+            if (typeof row.Number === 'number') {
+                issuesByNumber.set(row.Number, row);
+            }
+            if (typeof row.NodeID === 'string' && row.NodeID.trim().length > 0) {
+                issuesByNodeId.set(row.NodeID.trim(), row);
+            }
+        }
+
+        const prsByNumber = new Map<number, mjBizAppsTasksGitHubGitHubPullRequestTaskEntity>();
+        const prsByNodeId = new Map<string, mjBizAppsTasksGitHubGitHubPullRequestTaskEntity>();
+        for (const row of (prsRes?.Results as mjBizAppsTasksGitHubGitHubPullRequestTaskEntity[] | undefined) ?? []) {
+            if (typeof row.Number === 'number') {
+                prsByNumber.set(row.Number, row);
+            }
+            if (typeof row.NodeID === 'string' && row.NodeID.trim().length > 0) {
+                prsByNodeId.set(row.NodeID.trim(), row);
+            }
+        }
+
+        return {
+            issuesByNumber,
+            issuesByNodeId,
+            prsByNumber,
+            prsByNodeId,
+        };
+    }
+
+    private findPreloadedIssueExtension(
+        preloaded: PreloadedRepoExtensions | undefined,
+        number: number,
+        nodeId: string,
+    ): mjBizAppsTasksGitHubGitHubIssueTaskEntity | null {
+        if (!preloaded) return null;
+        const byNum = preloaded.issuesByNumber.get(Math.trunc(number));
+        if (byNum) return byNum;
+        if (nodeId.trim().length > 0) {
+            return preloaded.issuesByNodeId.get(nodeId.trim()) ?? null;
+        }
+        return null;
+    }
+
+    private findPreloadedPrExtension(
+        preloaded: PreloadedRepoExtensions | undefined,
+        number: number,
+        nodeId: string,
+    ): mjBizAppsTasksGitHubGitHubPullRequestTaskEntity | null {
+        if (!preloaded) return null;
+        const byNum = preloaded.prsByNumber.get(Math.trunc(number));
+        if (byNum) return byNum;
+        if (nodeId.trim().length > 0) {
+            return preloaded.prsByNodeId.get(nodeId.trim()) ?? null;
+        }
+        return null;
     }
 
     private async findExistingIssueExtension(
@@ -651,7 +1174,7 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         const safeNum = Math.trunc(number);
         const clauses = [`(RepositoryID = '${cleanRepoId}' AND Number = ${safeNum})`];
         if (nodeId.trim().length > 0) {
-            clauses.push(`NodeID = '${EscapeSqlLiteral(nodeId.trim())}'`);
+            clauses.push(`NodeID = '${EscapeSQLString(nodeId.trim())}'`);
         }
         const res = await rv.RunView<mjBizAppsTasksGitHubGitHubIssueTaskEntity>(
             {
@@ -679,7 +1202,7 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         const safeNum = Math.trunc(number);
         const clauses = [`(RepositoryID = '${cleanRepoId}' AND Number = ${safeNum})`];
         if (nodeId.trim().length > 0) {
-            clauses.push(`NodeID = '${EscapeSqlLiteral(nodeId.trim())}'`);
+            clauses.push(`NodeID = '${EscapeSQLString(nodeId.trim())}'`);
         }
         const res = await rv.RunView<mjBizAppsTasksGitHubGitHubPullRequestTaskEntity>(
             {
@@ -701,8 +1224,8 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         rv: RunView,
         contextUser: UserInfo,
     ): Promise<SyncReferenceContext> {
-        const tasksEntity = md.Entities.find((e) => e.Name === TASKS_ENTITY_NAME);
-        const peopleEntity = md.Entities.find((e) => e.Name === PEOPLE_ENTITY);
+        const tasksEntity = md.EntityByName(TASKS_ENTITY_NAME);
+        const peopleEntity = md.EntityByName(PEOPLE_ENTITY);
         if (!tasksEntity) {
             throw new Error(`Entity '${TASKS_ENTITY_NAME}' not found in metadata`);
         }
@@ -759,9 +1282,23 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         }
 
         const identities = (identitiesRes?.Results as mjBizAppsTasksGitHubGitHubIdentityEntity[] | undefined) ?? [];
-        const personIdByLowerLogin = new Map<string, string>();
+        const personIdByUserId = new Map<string, { login: string; personId: string }>();
+        const identityByLowerLogin = new Map<string, { personId: string; userId: string | null }>();
         for (const idRow of identities) {
-            personIdByLowerLogin.set(idRow.GitHubLogin.trim().toLowerCase(), idRow.PersonID);
+            const cleanLogin = idRow.GitHubLogin.trim();
+            const cleanUserId = typeof idRow.GitHubUserID === 'string' && idRow.GitHubUserID.trim().length > 0
+                ? idRow.GitHubUserID.trim()
+                : null;
+            identityByLowerLogin.set(cleanLogin.toLowerCase(), {
+                personId: idRow.PersonID,
+                userId: cleanUserId,
+            });
+            if (cleanUserId) {
+                personIdByUserId.set(cleanUserId, {
+                    login: cleanLogin,
+                    personId: idRow.PersonID,
+                });
+            }
         }
 
         return {
@@ -773,7 +1310,8 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
             prStatusesByCode,
             primaryRoleId: primaryRole.ID,
             reviewerRoleId: reviewerRole.ID,
-            personIdByLowerLogin,
+            personIdByUserId,
+            identityByLowerLogin,
         };
     }
 

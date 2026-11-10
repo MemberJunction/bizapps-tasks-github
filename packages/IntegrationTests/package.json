@@ -28,7 +28,7 @@
     "@memberjunction/global": "^6.2.1",
     "@memberjunction/testing-integration": "^6.2.1",
     "@mj-biz-apps/common-entities": "^5.62.0",
-    "@mj-biz-apps/tasks-entities": "^1.10.0",
+    "@mj-biz-apps/tasks-entities": "^1.11.1",
     "@mj-biz-apps/tasks-github-actions": "^1.0.0",
     "@mj-biz-apps/tasks-github-core": "^1.0.0",
     "@mj-biz-apps/tasks-github-entities": "^1.0.0"

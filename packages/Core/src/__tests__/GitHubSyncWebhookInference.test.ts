@@ -64,6 +64,24 @@ class FakeEntityObject {
 
     public async Save(): Promise<boolean> {
         if (!this.ID) this.NewRecord();
+        if (
+            (this._idPrefix === GITHUB_ISSUE_TASKS_ENTITY || this._idPrefix === GITHUB_PR_TASKS_ENTITY)
+            && this.RepositoryID != null
+            && this.Number != null
+        ) {
+            for (const existing of this._store.values()) {
+                if (
+                    existing.ID.toLowerCase() !== this.ID.toLowerCase()
+                    && String(existing.RepositoryID ?? '').toLowerCase() === String(this.RepositoryID).toLowerCase()
+                    && existing.Number === this.Number
+                ) {
+                    this.LatestResult = {
+                        CompleteMessage: 'Violation of UNIQUE KEY constraint UX_GitHubIssueTask_Repo_Number',
+                    };
+                    return false;
+                }
+            }
+        }
         const snapshot: InMemoryRecord = { ID: this.ID };
         for (const [k, v] of Object.entries(this)) {
             if (!k.startsWith('_') && k !== 'LatestResult') {
@@ -206,6 +224,23 @@ function buildTestHarness() {
                     const byNode = nodeMatch ? rec.NodeID === nodeMatch[1] : false;
                     return byRepoNum || byNode;
                 }
+                const repoOpenMatch = /^RepositoryID = '([^']+)' AND Status IN \('Open', 'InProgress'\)$/.exec(extraFilter);
+                if (repoOpenMatch) {
+                    if (String(rec.RepositoryID ?? '').toLowerCase() !== repoOpenMatch[1].toLowerCase()) {
+                        return false;
+                    }
+                    const parentTask = getStore(TASKS_ENTITY_NAME).get(rec.ID.toLowerCase());
+                    if (!parentTask) return false;
+                    const status = String(parentTask.Status ?? 'Open');
+                    if (status !== 'Open' && status !== 'InProgress') return false;
+                    rec.Name = parentTask.Name;
+                    rec.Status = status;
+                    return true;
+                }
+                const repoOnly = /^RepositoryID = '([^']+)'$/.exec(extraFilter);
+                if (repoOnly) {
+                    return String(rec.RepositoryID ?? '').toLowerCase() === repoOnly[1].toLowerCase();
+                }
                 const idOnly = /^ID = '([^']+)'$/.exec(extraFilter);
                 if (idOnly) return rec.ID.toLowerCase() === idOnly[1].toLowerCase();
             }
@@ -217,8 +252,12 @@ function buildTestHarness() {
                 const recMatch = /LinkedRecordID = '([^']+)'/.exec(extraFilter);
                 const keyMatch = /AnchorKey = '([^']+)'/.exec(extraFilter);
                 if (recMatch && keyMatch) {
+                    if (!extraFilter.includes("AnchorType = 'Field'")) {
+                        return false;
+                    }
                     return (
                         String(rec.LinkedRecordID ?? '').toLowerCase() === recMatch[1].toLowerCase()
+                        && rec.AnchorType === 'Field'
                         && rec.AnchorKey === keyMatch[1]
                         && rec.Outcome == null
                         && rec.IsResolved === false
@@ -243,11 +282,13 @@ function buildTestHarness() {
         ErrorMessage: '',
     });
 
+    const entitiesList = [
+        { ID: TASKS_ENTITY_ID, Name: TASKS_ENTITY_NAME } as EntityInfo,
+        { ID: PEOPLE_ENTITY_ID, Name: PEOPLE_ENTITY } as EntityInfo,
+    ];
     const provider = {
-        Entities: [
-            { ID: TASKS_ENTITY_ID, Name: TASKS_ENTITY_NAME } as EntityInfo,
-            { ID: PEOPLE_ENTITY_ID, Name: PEOPLE_ENTITY } as EntityInfo,
-        ],
+        Entities: entitiesList,
+        EntityByName: (name: string) => entitiesList.find((e) => e.Name === name),
         GetEntityObject: async (entityName: string) => makeEntity(entityName),
         RunView: runSingleView,
         RunViews: async (views: RunViewParams[]) => Promise.all(views.map((v) => runSingleView(v))),
@@ -273,6 +314,7 @@ function buildTestHarness() {
 
 describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookService', () => {
     beforeEach(() => {
+        GitHubWebhookService.Instance.ClearProcessedDeliveries();
         GitHubTaskInferenceService.Instance.SetExtractor({
             ExtractPlanningSuggestions: async () => ({
                 suggestions: [
@@ -631,5 +673,428 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
         );
         expect(issueDueSuggestions.some((s) => s.Outcome === 'Superseded')).toBe(true);
         expect(issueDueSuggestions.some((s) => s.Outcome == null && s.SuggestedValue === '"2026-12-22T00:00:00.000Z"')).toBe(true);
+    });
+
+    it('serializes concurrent opened/assigned deliveries for the same issue without creating duplicate or orphan Tasks', async () => {
+        const h = buildTestHarness();
+        const secret = 'concurrent-secret';
+
+        const makeIssueWebhook = (action: string, title: string, assignees: Array<{ login: string }>) => {
+            const payload = JSON.stringify({
+                action,
+                repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+                issue: {
+                    number: 88,
+                    node_id: 'I_88',
+                    title,
+                    body: 'Concurrent delivery test',
+                    html_url: 'https://github.com/MemberJunction/bizapps-tasks/issues/88',
+                    state: 'open',
+                    assignees,
+                    updated_at: '2026-11-10T10:00:00.000Z',
+                },
+            });
+            const sig = `sha256=${createHmac('sha256', secret).update(payload, 'utf8').digest('hex')}`;
+            return { payload, sig };
+        };
+
+        const d1 = makeIssueWebhook('opened', 'Race Issue #88', []);
+        const d2 = makeIssueWebhook('assigned', 'Race Issue #88', [{ login: 'alice-dev' }]);
+
+        const [res1, res2] = await Promise.all([
+            GitHubWebhookService.Instance.HandleWebhook({
+                eventName: 'issues',
+                deliveryId: 'deliv-88-1',
+                signatureHeader: d1.sig,
+                rawPayload: d1.payload,
+                webhookSecret: secret,
+                contextUser: h.contextUser,
+                provider: h.provider,
+            }),
+            GitHubWebhookService.Instance.HandleWebhook({
+                eventName: 'issues',
+                deliveryId: 'deliv-88-2',
+                signatureHeader: d2.sig,
+                rawPayload: d2.payload,
+                webhookSecret: secret,
+                contextUser: h.contextUser,
+                provider: h.provider,
+            }),
+        ]);
+
+        expect(res1.status).toBe('synced');
+        expect(res2.status).toBe('synced');
+        expect(h.getStore(TASKS_ENTITY_NAME).size).toBe(1);
+        expect(h.getStore(GITHUB_ISSUE_TASKS_ENTITY).size).toBe(1);
+        expect(Array.from(h.getStore(TASK_ASSIGNMENTS_ENTITY).values())).toHaveLength(1);
+    });
+
+    it('deduplicates replayed X-GitHub-Delivery IDs and skips out-of-order deliveries older than stored GitHubUpdatedAt', async () => {
+        const h = buildTestHarness();
+        const secret = 'ordering-secret';
+
+        const makePayload = (title: string, updatedAt: string) => {
+            const rawPayload = JSON.stringify({
+                action: 'edited',
+                repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+                issue: {
+                    number: 91,
+                    node_id: 'I_91',
+                    title,
+                    body: 'Ordering test',
+                    html_url: 'https://github.com/MemberJunction/bizapps-tasks/issues/91',
+                    state: 'open',
+                    updated_at: updatedAt,
+                },
+            });
+            const signatureHeader = `sha256=${createHmac('sha256', secret).update(rawPayload, 'utf8').digest('hex')}`;
+            return { rawPayload, signatureHeader };
+        };
+
+        const newer = makePayload('Newer Title (v2)', '2026-11-10T12:00:00.000Z');
+        const firstRes = await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'issues',
+            deliveryId: 'delivery-91-newer',
+            signatureHeader: newer.signatureHeader,
+            rawPayload: newer.rawPayload,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+        expect(firstRes.status).toBe('synced');
+        expect(firstRes.syncResult?.action).toBe('created');
+
+        // Replaying the exact same deliveryId is ignored
+        const replayRes = await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'issues',
+            deliveryId: 'delivery-91-newer',
+            signatureHeader: newer.signatureHeader,
+            rawPayload: newer.rawPayload,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+        expect(replayRes.status).toBe('ignored');
+        expect(replayRes.reason).toContain('Duplicate delivery ID');
+
+        // Out-of-order older delivery arrives with a fresh deliveryId -> skipped without overwriting title
+        const older = makePayload('Stale Older Title (v1)', '2026-11-10T11:00:00.000Z');
+        const staleRes = await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'issues',
+            deliveryId: 'delivery-91-older',
+            signatureHeader: older.signatureHeader,
+            rawPayload: older.rawPayload,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+        expect(staleRes.status).toBe('ignored');
+        expect(staleRes.syncResult?.action).toBe('skipped');
+
+        const savedTask = Array.from(h.getStore(TASKS_ENTITY_NAME).values())[0];
+        expect(savedTask.Name).toBe('Newer Title (v2)');
+    });
+
+    it('preserves PR ReviewDecision and diff stats across partial webhook events and commented reviews', async () => {
+        const h = buildTestHarness();
+        const secret = 'pr-preserve-secret';
+
+        // 1. Initial pull_request opened event carries diff stats (changed_files, additions, deletions)
+        const openedRaw = JSON.stringify({
+            action: 'opened',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            pull_request: {
+                number: 105,
+                node_id: 'PR_105',
+                title: 'feat: preserve PR fields',
+                body: 'Initial PR',
+                html_url: 'https://github.com/MemberJunction/bizapps-tasks/pull/105',
+                state: 'open',
+                draft: false,
+                head: { ref: 'feat/pr-preserve', sha: 'sha-111' },
+                base: { ref: 'next' },
+                changed_files: 7,
+                additions: 140,
+                deletions: 25,
+                updated_at: '2026-11-10T10:00:00.000Z',
+            },
+        });
+        await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'pull_request',
+            deliveryId: 'pr-105-open',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(openedRaw, 'utf8').digest('hex')}`,
+            rawPayload: openedRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+
+        // 2. pull_request_review approved event (lacks diff metrics) sets ReviewDecision='APPROVED' and preserves diff stats
+        const approvedRaw = JSON.stringify({
+            action: 'submitted',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            pull_request: {
+                number: 105,
+                node_id: 'PR_105',
+                title: 'feat: preserve PR fields',
+                body: 'Initial PR',
+                html_url: 'https://github.com/MemberJunction/bizapps-tasks/pull/105',
+                state: 'open',
+                draft: false,
+                head: { ref: 'feat/pr-preserve', sha: 'sha-111' },
+                base: { ref: 'next' },
+                updated_at: '2026-11-10T10:05:00.000Z',
+            },
+            review: { state: 'approved' },
+        });
+        await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'pull_request_review',
+            deliveryId: 'pr-105-approve',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(approvedRaw, 'utf8').digest('hex')}`,
+            rawPayload: approvedRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+
+        let prExt = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values())[0];
+        expect(prExt.ReviewDecision).toBe('APPROVED');
+        expect(prExt.ChangedFiles).toBe(7);
+        expect(prExt.Additions).toBe(140);
+        expect(prExt.Deletions).toBe(25);
+
+        // 3. A 'commented' review does not overwrite APPROVED with REVIEW_REQUIRED
+        const commentedRaw = JSON.stringify({
+            action: 'submitted',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            pull_request: {
+                number: 105,
+                node_id: 'PR_105',
+                title: 'feat: preserve PR fields',
+                body: 'Initial PR',
+                html_url: 'https://github.com/MemberJunction/bizapps-tasks/pull/105',
+                state: 'open',
+                draft: false,
+                head: { ref: 'feat/pr-preserve', sha: 'sha-111' },
+                base: { ref: 'next' },
+                updated_at: '2026-11-10T10:06:00.000Z',
+            },
+            review: { state: 'commented' },
+        });
+        await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'pull_request_review',
+            deliveryId: 'pr-105-comment',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(commentedRaw, 'utf8').digest('hex')}`,
+            rawPayload: commentedRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+
+        prExt = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values())[0];
+        expect(prExt.ReviewDecision).toBe('APPROVED');
+
+        // 4. Subsequent pull_request synchronize push updates HeadSha and sets ChecksStatus='Pending' without wiping ReviewDecision
+        const syncRaw = JSON.stringify({
+            action: 'synchronize',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            pull_request: {
+                number: 105,
+                node_id: 'PR_105',
+                title: 'feat: preserve PR fields',
+                body: 'Initial PR',
+                html_url: 'https://github.com/MemberJunction/bizapps-tasks/pull/105',
+                state: 'open',
+                draft: false,
+                head: { ref: 'feat/pr-preserve', sha: 'sha-222' },
+                base: { ref: 'next' },
+                changed_files: 8,
+                additions: 155,
+                deletions: 25,
+                updated_at: '2026-11-10T10:10:00.000Z',
+            },
+        });
+        await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'pull_request',
+            deliveryId: 'pr-105-sync',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(syncRaw, 'utf8').digest('hex')}`,
+            rawPayload: syncRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+
+        prExt = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values())[0];
+        expect(prExt.HeadSha).toBe('sha-222');
+        expect(prExt.ReviewDecision).toBe('APPROVED');
+        expect(prExt.ChecksStatus).toBe('Pending');
+        expect(prExt.ChangedFiles).toBe(8);
+    });
+
+    it('matches GitHubUserID across login renames and blocks recycled-login impersonation', async () => {
+        const h = buildTestHarness();
+        h.getStore(GITHUB_IDENTITIES_ENTITY).set('alice', {
+            ID: '88888888-8888-4888-8888-000000000001',
+            GitHubLogin: 'alice-old-handle',
+            GitHubUserID: '10001',
+            PersonID: h.ids.ALICE_PERSON_ID,
+            IsActive: true,
+        });
+
+        // 1. Alice renamed her GitHub login to 'alice-new-handle', but her GitHubUserID is still '10001' -> matches Alice
+        const renamedSync = await GitHubTaskSyncService.Instance.SyncRepositories({
+            repositoryId: h.ids.REPO_ASSIGNED_ID,
+            items: [
+                {
+                    kind: 'issue',
+                    number: 201,
+                    nodeId: 'I_201',
+                    title: 'Assigned to renamed Alice',
+                    body: '',
+                    htmlUrl: 'https://github.com/MemberJunction/MJ/issues/201',
+                    state: 'open',
+                    assigneeLogins: ['alice-new-handle'],
+                    assignees: [{ login: 'alice-new-handle', userId: '10001' }],
+                },
+            ],
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+        expect(renamedSync[0].created).toBe(1);
+
+        // 2. Outsider claims 'alice-old-handle' with a different GitHubUserID ('99999') -> rejected under AssignedOnly!
+        const recycledSync = await GitHubTaskSyncService.Instance.SyncRepositories({
+            repositoryId: h.ids.REPO_ASSIGNED_ID,
+            items: [
+                {
+                    kind: 'issue',
+                    number: 202,
+                    nodeId: 'I_202',
+                    title: 'Assigned to recycled handle',
+                    body: '',
+                    htmlUrl: 'https://github.com/MemberJunction/MJ/issues/202',
+                    state: 'open',
+                    assigneeLogins: ['alice-old-handle'],
+                    assignees: [{ login: 'alice-old-handle', userId: '99999' }],
+                },
+            ],
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+        expect(recycledSync[0].created).toBe(0);
+        expect(recycledSync[0].skipped).toBe(1);
+    });
+
+    it('validates LLM ParentID/CategoryID against candidates, skips Priority when already set, and scopes objectives to repository', async () => {
+        const h = buildTestHarness();
+        let capturedObjectives: Array<{ id: string; name: string }> = [];
+
+        // Create an open task in REPO_ASSIGNED_ID and an open task in REPO_ALL_ID
+        const repo1Sync = await GitHubTaskSyncService.Instance.SyncRepositories({
+            repositoryId: h.ids.REPO_ASSIGNED_ID,
+            items: [
+                {
+                    kind: 'issue',
+                    number: 301,
+                    nodeId: 'I_301',
+                    title: 'Repo 1 Parent Objective',
+                    body: 'Objective in repo 1',
+                    htmlUrl: 'https://github.com/MemberJunction/MJ/issues/301',
+                    state: 'open',
+                    assigneeLogins: ['alice-dev'],
+                },
+            ],
+            contextUser: h.contextUser,
+            provider: h.provider,
+            runInference: false,
+        });
+        const validParentId = repo1Sync[0].taskIds[0];
+
+        await GitHubTaskSyncService.Instance.SyncRepositories({
+            repositoryId: h.ids.REPO_ALL_ID,
+            items: [
+                {
+                    kind: 'issue',
+                    number: 302,
+                    nodeId: 'I_302',
+                    title: 'Other Repo Unrelated Objective',
+                    body: 'Objective in repo 2',
+                    htmlUrl: 'https://github.com/MemberJunction/bizapps-tasks/issues/302',
+                    state: 'open',
+                },
+            ],
+            contextUser: h.contextUser,
+            provider: h.provider,
+            runInference: false,
+        });
+
+        GitHubTaskInferenceService.Instance.SetExtractor({
+            ExtractPlanningSuggestions: async (ctx) => {
+                capturedObjectives = ctx.candidateObjectives;
+                return {
+                    suggestions: [
+                        {
+                            field: 'ParentID',
+                            value: 'dddddddd-dddd-4ddd-8ddd-000000000999', // Hallucinated UUID not in candidates
+                            confidence: 0.95,
+                            rationale: 'Hallucinated parent',
+                        },
+                        {
+                            field: 'CategoryID',
+                            value: 'eeeeeeee-eeee-4eee-8eee-000000000999', // Hallucinated CategoryID not in candidates
+                            confidence: 0.95,
+                            rationale: 'Hallucinated category',
+                        },
+                        {
+                            field: 'Priority',
+                            value: 'High', // Should be skipped because Task.Priority is already set by sync
+                            confidence: 0.91,
+                            rationale: 'Priority already set',
+                        },
+                        {
+                            field: 'ParentID',
+                            value: validParentId, // Valid candidate objective in same repo
+                            confidence: 0.89,
+                            rationale: 'Matches Repo 1 Parent Objective',
+                        },
+                    ],
+                    mentionedLogins: [],
+                    promptRunId: 'cccccccc-cccc-4ccc-8ccc-000000000003',
+                };
+            },
+        });
+
+        const childSync = await GitHubTaskSyncService.Instance.SyncRepositories({
+            repositoryId: h.ids.REPO_ASSIGNED_ID,
+            items: [
+                {
+                    kind: 'issue',
+                    number: 303,
+                    nodeId: 'I_303',
+                    title: 'Child issue in Repo 1',
+                    body: 'Part of Repo 1 Parent Objective',
+                    htmlUrl: 'https://github.com/MemberJunction/MJ/issues/303',
+                    state: 'open',
+                    assigneeLogins: ['alice-dev'],
+                },
+            ],
+            contextUser: h.contextUser,
+            provider: h.provider,
+            runInference: true,
+        });
+
+        // Candidate objectives sent to the model only include open tasks from REPO_ASSIGNED_ID
+        expect(capturedObjectives.some((o) => o.id === validParentId)).toBe(true);
+        expect(capturedObjectives.some((o) => o.name === 'Other Repo Unrelated Objective')).toBe(false);
+
+        // Hallucinated ParentID, hallucinated CategoryID, and already-populated Priority were all rejected; only validParentId was written
+        expect(childSync[0].inferredSuggestionsCreated).toBe(1);
+        const childTaskId = childSync[0].taskIds[0];
+        const childSuggestions = Array.from(h.getStore(FIELD_SUGGESTIONS_ENTITY_NAME).values()).filter(
+            (s) => String(s.LinkedRecordID ?? '').toLowerCase() === childTaskId.toLowerCase(),
+        );
+        expect(childSuggestions).toHaveLength(1);
+        expect(childSuggestions[0].AnchorKey).toBe('ParentID');
+        expect(childSuggestions[0].SuggestedValue).toBe(JSON.stringify(validParentId));
     });
 });

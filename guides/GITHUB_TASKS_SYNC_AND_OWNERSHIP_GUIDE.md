@@ -59,28 +59,30 @@ Each `GitHubRepository` declares an `ImportRule`:
 2. Processes `issues`, `pull_request`, and `pull_request_review` events immediately into `GitHubTaskSyncService`.
 3. Returns `200 { ok: true, status: 'ignored' }` for `ping` or untracked repositories without creating noisy rows.
 
-### Mounting in Host Express Server
+### Mounting in Host MJAPI / Express Server
+
+When `@mj-biz-apps/tasks-github-server` is installed as an Open App server package, `GitHubTasksWebhookServerExtension` (`MJ_SERVER_EXTENSIONS`) automatically mounts the pre-auth webhook endpoint at `ApiRoute('/webhooks/github/tasks')` before JWT authentication and global JSON body parsing.
+
+To mount the route explicitly in a custom host setup, use `registerGitHubTasksWebhookRoute` (which mounts via `ApiRoute()` and resolves the acting principal from `GITHUB_WEBHOOK_USER_EMAIL` via `ResolveConfiguredPrincipal` or falls back explicitly to `UserCache.Instance.GetSystemUser()`):
 
 ```typescript
 import express from 'express';
-import { UserCache } from '@memberjunction/sqlserver-dataprovider';
-import { createGitHubTasksWebhookHandler } from '@mj-biz-apps/tasks-github-server';
+import {
+    captureRawBodyVerify,
+    registerGitHubTasksWebhookRoute,
+} from '@mj-biz-apps/tasks-github-server';
 
-app.post(
-    '/webhooks/github/tasks',
-    express.raw({ type: 'application/json' }),
-    (req, res) => {
-        const handler = createGitHubTasksWebhookHandler({
-            resolveContextUser: () => UserCache.Instance.Users[0],
-            webhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
-        });
-        void handler(
-            { headers: req.headers, rawBody: req.body as Buffer },
-            res,
-        );
-    },
-);
+// If global express.json() is registered ahead of custom routes, preserve req.rawBody:
+app.use(express.json({ verify: captureRawBodyVerify }));
+
+// Mounts at ApiRoute('/webhooks/github/tasks') and runs as GITHUB_WEBHOOK_USER_EMAIL or GetSystemUser()
+registerGitHubTasksWebhookRoute(app, {
+    configuredUserEmail: process.env.GITHUB_WEBHOOK_USER_EMAIL,
+    queueInference: true,
+});
 ```
+
+For bulk repository synchronization (`SyncGitHubRepositoryTasksAction` without `ItemsJSON`), set `GITHUB_TOKEN` (or `GH_TOKEN`) on the server so `DefaultGitHubRestRepositoryFetcher` fetches issues and pull requests from the GitHub REST API, or register a custom `IGitHubRepositoryFetcher` via `GitHubTaskSyncService.Instance.SetRepositoryFetcher(...)`.
 
 ---
 

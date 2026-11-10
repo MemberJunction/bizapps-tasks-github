@@ -12,7 +12,7 @@
       "Status": "Active"
     },
     "primaryKey": {
-      "ID": "A1B2C3D4-1109-4A11-9B02-000000000001"
+      "ID": "79C7406B-08C9-4CEC-8080-895A936B08AF"
     },
     "relatedEntities": {
       "MJ: Action Params": [
@@ -24,14 +24,10 @@
             "ValueType": "Scalar",
             "IsArray": false,
             "IsRequired": false,
-            "Description": "Optional GitHubRepository ID. When omitted, all tracked repositories (IsTracked = 1) are synchronized."
+            "Description": "GitHubRepository ID. Required when ItemsJSON is supplied; when omitted, all tracked repositories (IsTracked = 1) are synchronized via the server's GitHub REST fetcher."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B02-000000000101"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.135Z",
-            "checksum": "b2d9188e68a51330c087b4d7b94f9e1629cbf3113fe8bfbc145fb04ac7b9574c"
+            "ID": "60B84688-4C3D-4F2A-9514-3E9C86011F45"
           }
         },
         {
@@ -42,14 +38,10 @@
             "ValueType": "Scalar",
             "IsArray": false,
             "IsRequired": false,
-            "Description": "Optional JSON array of normalized GitHub issues/PRs supplied by the MJ 6.3 GitHub connector or tests."
+            "Description": "Optional JSON array of validated NormalizedGitHubSyncItem objects scoped to RepositoryID."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B02-000000000102"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.156Z",
-            "checksum": "85885470eb9948c67b4abe5a64861a78eddd86fe26105b2289990ad6ebf39848"
+            "ID": "F0CD4806-D7B8-4600-835B-C5777954255F"
           }
         },
         {
@@ -63,11 +55,7 @@
             "Description": "Whether to run planning Field Suggestion inference on newly created or body-updated items (default true)."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B02-000000000103"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.176Z",
-            "checksum": "f8ad2bef2ac7ae31aed656b88c4e8870ab0c80607ed26fc3a7641de62c749ac6"
+            "ID": "25020841-BE3C-425E-B46E-810E59D1F1C1"
           }
         },
         {
@@ -81,11 +69,7 @@
             "Description": "JSON summary with counts of imported, updated, skipped, and inferred items."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B02-000000000104"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.195Z",
-            "checksum": "c25da92149d8eca42ea177a878fd1b4237ec3e516ce9e003d9b7c6649d5c5c2e"
+            "ID": "061B3489-7C34-4A27-AF45-FD41836D0DA9"
           }
         }
       ],
@@ -98,11 +82,7 @@
             "Description": "Synchronization completed successfully."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B02-000000000201"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.228Z",
-            "checksum": "d121c41f26c124761540cfcc441a6971841e84148f130a6bf364d1dfab46430b"
+            "ID": "7821AA2C-D94E-4A6C-8C46-72EC0683BE4F"
           }
         },
         {
@@ -113,11 +93,7 @@
             "Description": "The requested RepositoryID was not found."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B02-000000000202"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.240Z",
-            "checksum": "2961e3b6bc935e12dc5d82afa2c2a6a46bab73660a086d2936ad1d744ce6a5ea"
+            "ID": "9DA9DED1-5885-4C5D-B998-2A88D6569D6B"
           }
         },
         {
@@ -128,11 +104,7 @@
             "Description": "Invalid input parameters."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B02-000000000203"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.253Z",
-            "checksum": "e78379049a3f8ae83f1f8d20e54b7e87d48f2f9d476ed7954af4307a448fc742"
+            "ID": "5AA479A7-8232-4F3D-A2DF-3F4FDB810C80"
           }
         },
         {
@@ -143,18 +115,10 @@
             "Description": "Unexpected synchronization error."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B02-000000000204"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.266Z",
-            "checksum": "7de08317256d483301fbcd7a43e0f553324a1ecc37240a15916c1c05927a5652"
+            "ID": "84D9A363-BF42-461F-A004-D67C2F0A61DB"
           }
         }
       ]
-    },
-    "sync": {
-      "lastModified": "2026-11-09T23:04:44.019Z",
-      "checksum": "8b7f22513324aa69a56decbfd4ab7a2e7a10fe74117797c3ac7ff2c62ee18c79"
     }
   },
   {
@@ -170,7 +134,7 @@
       "Status": "Active"
     },
     "primaryKey": {
-      "ID": "A1B2C3D4-1109-4A11-9B03-000000000001"
+      "ID": "0425697D-175C-4CD2-9036-A9030E65417D"
     },
     "relatedEntities": {
       "MJ: Action Params": [
@@ -185,11 +149,7 @@
             "Description": "X-GitHub-Event header value (issues, pull_request, pull_request_review)."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B03-000000000101"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.287Z",
-            "checksum": "d5804e1da4e169472c2d55506bbd582fcf16e87328664e65e3094c3b4485696d"
+            "ID": "9A816833-0053-4ECE-8699-60D132EF31DE"
           }
         },
         {
@@ -203,11 +163,7 @@
             "Description": "X-GitHub-Delivery unique UUID."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B03-000000000102"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.306Z",
-            "checksum": "92e266ac1f0910ddb98f0dff872c7722fe0c84516dd037c71d96e44fb4684446"
+            "ID": "31FC870B-ED02-41CA-B720-D27DEEE57E42"
           }
         },
         {
@@ -221,11 +177,7 @@
             "Description": "X-Hub-Signature-256 header value (sha256=<hex>)."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B03-000000000103"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.325Z",
-            "checksum": "9be37bc233d8970967c4a285a284748109d6e2d014ec6555baeac70fd2c19d19"
+            "ID": "E049007A-BA3C-4083-A22A-F312C892820F"
           }
         },
         {
@@ -239,11 +191,7 @@
             "Description": "Unmodified UTF-8 JSON body of the webhook delivery."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B03-000000000104"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.344Z",
-            "checksum": "c07da046eabfa5edac84628d799d8596f701484ee0ae3a8cbd4759c0ff3aeb35"
+            "ID": "D840B122-74E5-4284-AA6B-0389401C7399"
           }
         },
         {
@@ -257,11 +205,7 @@
             "Description": "ID of the synchronized Task when imported or updated."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B03-000000000105"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.363Z",
-            "checksum": "6a818143fea0ca4194ac1d516a3172703fb194e9c971dd95e28a22b89518d991"
+            "ID": "022690AF-F0DC-49B1-80FF-B873D2EB2425"
           }
         }
       ],
@@ -274,11 +218,7 @@
             "Description": "Webhook verified and item synchronized."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B03-000000000201"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.374Z",
-            "checksum": "fc725b4c3cc81e73b8df8798bd15d1b8ffb44b9274303b2c628253f11f793db6"
+            "ID": "0B502812-B227-44AD-B22D-B4C542D5F307"
           }
         },
         {
@@ -289,11 +229,7 @@
             "Description": "Webhook verified; event or repository is untracked or filtered out by ImportRule."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B03-000000000202"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.384Z",
-            "checksum": "2a990a6c7e6b29b31e064c1c07b44868e66df78d8a0a6d84819b1be358058c20"
+            "ID": "FE97F79A-D103-485D-99DC-AECF52E433A9"
           }
         },
         {
@@ -304,11 +240,7 @@
             "Description": "Webhook HMAC-SHA256 verification failed."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B03-000000000203"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.395Z",
-            "checksum": "2f752e5fdfd1171839ec292d41fa7d9976bfe05f58e27e75a99465b2ea677849"
+            "ID": "043078D7-E57D-46EE-BDB9-3E1D7900706A"
           }
         },
         {
@@ -319,11 +251,7 @@
             "Description": "Missing required webhook parameters or malformed JSON."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B03-000000000204"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.406Z",
-            "checksum": "85b31bd352448d00c8a23d5f84abaa221c0a0d7dcc3df949381ee58ba43c4cdb"
+            "ID": "662DE732-A8C9-4B7E-831D-70506261BFFB"
           }
         },
         {
@@ -334,18 +262,10 @@
             "Description": "Unexpected webhook processing failure."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B03-000000000205"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.416Z",
-            "checksum": "0d843b857e2338ca5522a9318234142187b31fc238bb59b2dba640ac6db06c8c"
+            "ID": "4A0BB39B-8983-4EDE-AAAF-8C8548C8B36E"
           }
         }
       ]
-    },
-    "sync": {
-      "lastModified": "2026-11-09T23:04:44.063Z",
-      "checksum": "11a62769c5c5afaf2d321b7267f9de17cff3cc2d4fba1e3b2c9e4ab0ea8bbf4f"
     }
   },
   {
@@ -361,7 +281,7 @@
       "Status": "Active"
     },
     "primaryKey": {
-      "ID": "A1B2C3D4-1109-4A11-9B04-000000000001"
+      "ID": "FF789162-F980-4905-934D-48C1D2B53AE0"
     },
     "relatedEntities": {
       "MJ: Action Params": [
@@ -376,11 +296,7 @@
             "Description": "ID of the GITHUB_ISSUE or GITHUB_PR Task."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B04-000000000101"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.437Z",
-            "checksum": "b17426572fa2f25c89e54bc8189733ea36563be0e487fb427d0863765fcd7629"
+            "ID": "04724F37-70A7-4D2E-B885-F46A5497DAA4"
           }
         },
         {
@@ -394,11 +310,7 @@
             "Description": "Number of MJ: Field Suggestions created."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B04-000000000102"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.457Z",
-            "checksum": "ff00cd3fa1b49b8d5a64ad64966ffc1dd3c4787475d364bd28a2aff3e40fcdcd"
+            "ID": "191D9256-121E-4C81-A0D9-496B4F300115"
           }
         }
       ],
@@ -411,11 +323,7 @@
             "Description": "Inference completed and Field Suggestions created."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B04-000000000201"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.468Z",
-            "checksum": "378964e6718717d9a2773e2362267cba50f0ab9106bce318989d1c5e87f7488e"
+            "ID": "FD45708A-7AB3-4B8C-AE19-80A3BEB4D330"
           }
         },
         {
@@ -426,11 +334,7 @@
             "Description": "No eligible Tasks-owned planning suggestions to propose."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B04-000000000202"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.478Z",
-            "checksum": "c76f48e2e17101c755258052e972810d79c5026cb3c90868ffe7a85b71179a4a"
+            "ID": "8234777C-6E03-40BD-B281-557B3913D9E2"
           }
         },
         {
@@ -441,11 +345,7 @@
             "Description": "Task was not found."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B04-000000000203"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.489Z",
-            "checksum": "14a6af154a50de7d480bf36096fc1885fa4f13416fb45c7e18a0b6b39e2cb4a8"
+            "ID": "B893B173-9E28-42D9-869C-F939F98DCC7B"
           }
         },
         {
@@ -456,18 +356,10 @@
             "Description": "Inference failed."
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B04-000000000204"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:44.500Z",
-            "checksum": "55d54d7ddf2401c408f09f2ac816bf5d6c7edeb03fc258266df3961a53ceef03"
+            "ID": "CF051A97-A0CC-4FE5-B7E7-BB0F51C8D0A7"
           }
         }
       ]
-    },
-    "sync": {
-      "lastModified": "2026-11-09T23:04:44.089Z",
-      "checksum": "0386fb2818e3c871a03c27bef121db789235b9a557b8cc65215ccedbc12549af"
     }
   }
 ]

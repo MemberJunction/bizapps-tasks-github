@@ -1,7 +1,7 @@
 import { BaseAction } from '@memberjunction/actions';
 import { ActionParam, ActionResultSimple, RunActionParams } from '@memberjunction/actions-base';
-import { IMetadataProvider, IRunViewProvider, Metadata, RunView } from '@memberjunction/core';
-import { RegisterClass } from '@memberjunction/global';
+import { IMetadataProvider, IRunViewProvider, LogError, Metadata, RunView } from '@memberjunction/core';
+import { IsValidUUID, RegisterClass } from '@memberjunction/global';
 import type { mjBizAppsTasksTaskEntity } from '@mj-biz-apps/tasks-entities';
 import type {
     mjBizAppsTasksGitHubGitHubIssueTaskEntity,
@@ -10,13 +10,14 @@ import type {
 } from '@mj-biz-apps/tasks-github-entities';
 import {
     AssertValidUUID,
+    CandidateSyncItemInput,
     GITHUB_ISSUE_TASKS_ENTITY,
     GITHUB_PR_TASKS_ENTITY,
     GITHUB_REPOSITORIES_ENTITY,
+    GitHubFieldOwnershipPolicy,
     GitHubTaskInferenceService,
     GitHubTaskSyncService,
     GitHubWebhookService,
-    IsValidUUIDString,
     NormalizedGitHubSyncItem,
     TASKS_ENTITY_NAME,
 } from '@mj-biz-apps/tasks-github-core';
@@ -56,7 +57,7 @@ export class SyncGitHubRepositoryTasksAction extends BaseAction {
     protected async InternalRunAction(params: RunActionParams): Promise<ActionResultSimple> {
         try {
             const repositoryId = getStringParam(params.Params, 'RepositoryID');
-            if (repositoryId && !IsValidUUIDString(repositoryId)) {
+            if (repositoryId && !IsValidUUID(repositoryId)) {
                 return {
                     Success: false,
                     ResultCode: 'VALIDATION_ERROR',
@@ -67,8 +68,16 @@ export class SyncGitHubRepositoryTasksAction extends BaseAction {
             const itemsJson = getStringParam(params.Params, 'ItemsJSON');
             let parsedItems: NormalizedGitHubSyncItem[] | undefined;
             if (itemsJson) {
+                if (!repositoryId) {
+                    return {
+                        Success: false,
+                        ResultCode: 'VALIDATION_ERROR',
+                        Message: 'RepositoryID is required when supplying ItemsJSON',
+                    };
+                }
+                let rawArray: CandidateSyncItemInput[];
                 try {
-                    const candidate = JSON.parse(itemsJson) as NormalizedGitHubSyncItem[];
+                    const candidate = JSON.parse(itemsJson) as CandidateSyncItemInput[];
                     if (!Array.isArray(candidate)) {
                         return {
                             Success: false,
@@ -76,7 +85,7 @@ export class SyncGitHubRepositoryTasksAction extends BaseAction {
                             Message: 'ItemsJSON must be a JSON array of NormalizedGitHubSyncItem objects',
                         };
                     }
-                    parsedItems = candidate;
+                    rawArray = candidate;
                 } catch {
                     return {
                         Success: false,
@@ -84,6 +93,20 @@ export class SyncGitHubRepositoryTasksAction extends BaseAction {
                         Message: 'ItemsJSON is not valid JSON',
                     };
                 }
+
+                const validatedItems: NormalizedGitHubSyncItem[] = [];
+                for (let i = 0; i < rawArray.length; i += 1) {
+                    const check = GitHubFieldOwnershipPolicy.ValidateNormalizedGitHubSyncItem(rawArray[i]);
+                    if (!check.valid || !check.item) {
+                        return {
+                            Success: false,
+                            ResultCode: 'VALIDATION_ERROR',
+                            Message: `Invalid item at index ${i} in ItemsJSON: ${check.error ?? 'validation failed'}`,
+                        };
+                    }
+                    validatedItems.push(check.item);
+                }
+                parsedItems = validatedItems;
             }
 
             const runInference = getBooleanParam(params.Params, 'RunInference', true);
@@ -115,6 +138,18 @@ export class SyncGitHubRepositoryTasksAction extends BaseAction {
                     Message: message,
                 };
             }
+            if (
+                message.includes('Invalid sync item')
+                || message.includes('Sync item ')
+                || message.includes('does not belong to repository')
+            ) {
+                return {
+                    Success: false,
+                    ResultCode: 'VALIDATION_ERROR',
+                    Message: message,
+                };
+            }
+            LogError(error instanceof Error ? error : new Error(message));
             return {
                 Success: false,
                 ResultCode: 'FAILED',
@@ -132,10 +167,8 @@ export class HandleGitHubWebhookAction extends BaseAction {
             const signatureHeader = getStringParam(params.Params, 'SignatureHeader');
             const rawPayload = getStringParam(params.Params, 'RawPayload');
             const deliveryId = getStringParam(params.Params, 'DeliveryID');
-            const webhookSecret =
-                getStringParam(params.Params, 'WebhookSecret')
-                ?? process.env.GITHUB_WEBHOOK_SECRET
-                ?? '';
+            // Security: always read the HMAC secret exclusively from server configuration, never from caller params.
+            const webhookSecret = (process.env.GITHUB_WEBHOOK_SECRET ?? '').trim();
 
             if (!eventName || !signatureHeader || !rawPayload) {
                 return {
@@ -189,6 +222,7 @@ export class HandleGitHubWebhookAction extends BaseAction {
                 Params: params.Params,
             };
         } catch (error) {
+            LogError(error instanceof Error ? error : new Error(String(error)));
             return {
                 Success: false,
                 ResultCode: 'FAILED',
@@ -203,7 +237,7 @@ export class InferGitHubTaskFieldsAction extends BaseAction {
     protected async InternalRunAction(params: RunActionParams): Promise<ActionResultSimple> {
         try {
             const rawTaskId = getStringParam(params.Params, 'TaskID');
-            if (!rawTaskId || !IsValidUUIDString(rawTaskId)) {
+            if (!rawTaskId || !IsValidUUID(rawTaskId)) {
                 return {
                     Success: false,
                     ResultCode: 'VALIDATION_ERROR',
@@ -266,6 +300,7 @@ export class InferGitHubTaskFieldsAction extends BaseAction {
 
             const infRes = await GitHubTaskInferenceService.Instance.InferTaskPlanningFields({
                 task,
+                repositoryId: extRow.RepositoryID,
                 repositoryFullName: repoFullName,
                 itemKind: issueRow ? 'issue' : 'pull_request',
                 number: extRow.Number ?? 0,
@@ -286,6 +321,7 @@ export class InferGitHubTaskFieldsAction extends BaseAction {
                 Params: params.Params,
             };
         } catch (error) {
+            LogError(error instanceof Error ? error : new Error(String(error)));
             return {
                 Success: false,
                 ResultCode: 'FAILED',

@@ -1,17 +1,18 @@
-const UUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+import { EscapeSQLString, IsValidUUID } from '@memberjunction/global';
 
 /**
  * Validates that a value is a canonical 36-character UUID before interpolating into SQL filters.
+ * Delegates to `IsValidUUID` from `@memberjunction/global`.
  */
 export function IsValidUUIDString(value: string | null | undefined): value is string {
-    return typeof value === 'string' && UUID_PATTERN.test(value.trim());
+    return typeof value === 'string' && IsValidUUID(value);
 }
 
 /**
  * Throws if `value` is not a valid canonical UUID.
  */
 export function AssertValidUUID(value: string | null | undefined, label: string): string {
-    if (!IsValidUUIDString(value)) {
+    if (typeof value !== 'string' || !IsValidUUID(value)) {
         throw new Error(`Invalid UUID for ${label}: '${String(value)}'`);
     }
     return value.trim();
@@ -19,7 +20,8 @@ export function AssertValidUUID(value: string | null | undefined, label: string)
 
 /**
  * Escapes single quotes for SQL string literals inside RunView ExtraFilter expressions.
+ * Delegates to `EscapeSQLString` from `@memberjunction/global`.
  */
 export function EscapeSqlLiteral(value: string): string {
-    return value.replace(/'/g, "''");
+    return EscapeSQLString(value);
 }

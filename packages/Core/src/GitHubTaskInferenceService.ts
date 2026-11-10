@@ -4,14 +4,15 @@ import { AIEngineBase } from '@memberjunction/ai-engine-base';
 import {
     IMetadataProvider,
     IRunViewProvider,
+    LogError,
     Metadata,
     RunView,
     UserInfo,
 } from '@memberjunction/core';
-import { BaseSingleton, UUIDsEqual } from '@memberjunction/global';
+import { BaseSingleton, EscapeSQLString, IsValidUUID, UUIDsEqual } from '@memberjunction/global';
 import type { mjBizAppsTasksTaskEntity } from '@mj-biz-apps/tasks-entities';
 import { GitHubFieldOwnershipPolicy } from './GitHubFieldOwnershipPolicy.js';
-import { AssertValidUUID, EscapeSqlLiteral, IsValidUUIDString } from './sql-safety.js';
+import { AssertValidUUID } from './sql-safety.js';
 import type {
     IFieldSuggestionEntityRecord,
     IGitHubInferenceExtractor,
@@ -22,6 +23,7 @@ import type {
 } from './types.js';
 
 export const TASKS_ENTITY_NAME = 'MJ_BizApps_Tasks: Tasks';
+export const GITHUB_ISSUE_TASKS_FOR_INFERENCE_ENTITY = 'MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks';
 export const FIELD_SUGGESTIONS_ENTITY_NAME = 'MJ: Field Suggestions';
 export const CONVERSATION_TYPES_ENTITY_NAME = 'MJ: Conversation Types';
 export const COMMENT_TYPES_ENTITY_NAME = 'MJ: Comment Types';
@@ -44,6 +46,7 @@ interface RawPromptJsonShape {
 
 export interface RunTaskInferenceOptions {
     task: mjBizAppsTasksTaskEntity;
+    repositoryId?: string | null;
     repositoryFullName: string;
     itemKind: 'issue' | 'pull_request';
     number: number;
@@ -132,6 +135,8 @@ class DefaultPromptInferenceExtractor implements IGitHubInferenceExtractor {
 
 export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenceService> {
     private _extractor: IGitHubInferenceExtractor = new DefaultPromptInferenceExtractor();
+    private _debouncedTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    private _inFlightDebounced = new Map<string, Promise<void>>();
 
     public constructor() {
         super();
@@ -150,6 +155,38 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
     }
 
     /**
+     * Queues a debounced background inference run per Task ID so rapid webhook edits
+     * coalesce into a single background LLM run without holding the HTTP response open.
+     */
+    public QueueDebouncedInference(options: RunTaskInferenceOptions, debounceMs = 1500): void {
+        const key = options.task.ID.toLowerCase();
+        const existingTimer = this._debouncedTimers.get(key);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+        }
+        const timer = setTimeout(() => {
+            this._debouncedTimers.delete(key);
+            const runPromise = this.InferTaskPlanningFields(options)
+                .then(() => undefined)
+                .catch((err) => {
+                    LogError(err instanceof Error ? err : new Error(String(err)));
+                })
+                .finally(() => {
+                    this._inFlightDebounced.delete(key);
+                });
+            this._inFlightDebounced.set(key, runPromise);
+        }, debounceMs);
+        this._debouncedTimers.set(key, timer);
+    }
+
+    /**
+     * Waits for any currently running debounced inference tasks to settle.
+     */
+    public async FlushDebouncedInferences(): Promise<void> {
+        await Promise.all(Array.from(this._inFlightDebounced.values()));
+    }
+
+    /**
      * Proposes `MJ: Field Suggestions` strictly for Tasks-owned planning fields on a GitHub-backed Task.
      * Structured GitHub fields (MilestoneDueAt, structured assignees/reviewers) and already-populated
      * human planning fields always win and are never overwritten.
@@ -157,6 +194,7 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
     public async InferTaskPlanningFields(options: RunTaskInferenceOptions): Promise<RunTaskInferenceResult> {
         const {
             task,
+            repositoryId,
             repositoryFullName,
             itemKind,
             number,
@@ -182,28 +220,46 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
         const md = provider ?? Metadata.Provider;
         const rv = provider ? RunView.FromMetadataProvider(provider) : new RunView();
 
-        const [objectivesResult, categoriesResult] = await rv.RunViews([
-            {
-                EntityName: TASKS_ENTITY_NAME,
-                ExtraFilter: `Status IN ('Open', 'InProgress')`,
-                Fields: ['ID', 'Name'],
-                MaxRows: 50,
-                ResultType: 'simple',
-            },
-            {
-                EntityName: 'MJ_BizApps_Tasks: Task Categories',
-                ExtraFilter: `IsActive = 1`,
-                Fields: ['ID', 'Name'],
-                MaxRows: 50,
-                ResultType: 'simple',
-            },
-        ], contextUser);
+        let candidateObjectives: Array<{ id: string; name: string }> = [];
+        let candidateCategories: Array<{ id: string; name: string }> = [];
 
-        const candidateObjectives = (objectivesResult?.Results as Array<{ ID: string; Name: string }> | undefined ?? [])
-            .filter((o) => !UUIDsEqual(o.ID, task.ID))
-            .map((o) => ({ id: o.ID, name: o.Name }));
-        const candidateCategories = (categoriesResult?.Results as Array<{ ID: string; Name: string }> | undefined ?? [])
-            .map((c) => ({ id: c.ID, name: c.Name }));
+        if (repositoryId && IsValidUUID(repositoryId)) {
+            const cleanRepoId = AssertValidUUID(repositoryId, 'repositoryId');
+            const [objectivesResult, categoriesResult] = await rv.RunViews([
+                {
+                    EntityName: GITHUB_ISSUE_TASKS_FOR_INFERENCE_ENTITY,
+                    ExtraFilter: `RepositoryID = '${EscapeSQLString(cleanRepoId)}' AND Status IN ('Open', 'InProgress')`,
+                    Fields: ['ID', 'Name'],
+                    MaxRows: 50,
+                    ResultType: 'simple',
+                },
+                {
+                    EntityName: 'MJ_BizApps_Tasks: Task Categories',
+                    ExtraFilter: `IsActive = 1`,
+                    Fields: ['ID', 'Name'],
+                    MaxRows: 50,
+                    ResultType: 'simple',
+                },
+            ], contextUser);
+
+            candidateObjectives = (objectivesResult?.Results as Array<{ ID: string; Name?: string }> | undefined ?? [])
+                .filter((o) => !UUIDsEqual(o.ID, task.ID) && typeof o.Name === 'string' && o.Name.trim().length > 0)
+                .map((o) => ({ id: o.ID, name: o.Name as string }));
+            candidateCategories = (categoriesResult?.Results as Array<{ ID: string; Name: string }> | undefined ?? [])
+                .map((c) => ({ id: c.ID, name: c.Name }));
+        } else {
+            const categoriesResult = await rv.RunView<{ ID: string; Name: string }>(
+                {
+                    EntityName: 'MJ_BizApps_Tasks: Task Categories',
+                    ExtraFilter: `IsActive = 1`,
+                    Fields: ['ID', 'Name'],
+                    MaxRows: 50,
+                    ResultType: 'simple',
+                },
+                contextUser,
+            );
+            candidateCategories = (categoriesResult.Results ?? []).map((c) => ({ id: c.ID, name: c.Name }));
+        }
 
         const normalizedMilestoneDue = milestoneDueAt instanceof Date
             ? milestoneDueAt.toISOString()
@@ -242,7 +298,16 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
                 skippedFields.push(candidate.field);
                 continue;
             }
-            if (!this.isFieldEligibleForSuggestion(task, candidate.field, candidate.value, normalizedMilestoneDue)) {
+            if (
+                !this.isFieldEligibleForSuggestion(
+                    task,
+                    candidate.field,
+                    candidate.value,
+                    normalizedMilestoneDue,
+                    candidateObjectives,
+                    candidateCategories,
+                )
+            ) {
                 skippedFields.push(candidate.field);
                 continue;
             }
@@ -259,7 +324,7 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
             };
         }
 
-        const tasksEntityInfo = md.Entities.find((e) => e.Name === TASKS_ENTITY_NAME);
+        const tasksEntityInfo = md.EntityByName(TASKS_ENTITY_NAME);
         if (!tasksEntityInfo) {
             throw new Error(`Entity metadata not found for '${TASKS_ENTITY_NAME}'`);
         }
@@ -302,13 +367,14 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
             suggestion.Confidence = Number(candidate.confidence.toFixed(4));
             suggestion.Source = 'LLM';
             suggestion.Outcome = null;
-            if (IsValidUUIDString(extraction.promptRunId)) {
+            if (typeof extraction.promptRunId === 'string' && IsValidUUID(extraction.promptRunId)) {
                 suggestion.AIPromptRunID = extraction.promptRunId;
             }
 
             const saved = await suggestion.Save();
             if (!saved) {
                 const errMsg = suggestion.LatestResult?.CompleteMessage ?? 'Unknown save error';
+                LogError(`Failed saving MJ: Field Suggestions for '${candidate.field}': ${errMsg}`);
                 throw new Error(`Failed saving MJ: Field Suggestions for '${candidate.field}': ${errMsg}`);
             }
             createdSuggestionIds.push(suggestion.ID);
@@ -337,7 +403,7 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
     ): Promise<number> {
         const cleanEntityId = AssertValidUUID(linkedEntityId, 'linkedEntityId');
         const cleanRecordId = AssertValidUUID(linkedRecordId, 'linkedRecordId');
-        const safeField = EscapeSqlLiteral(fieldName);
+        const safeField = EscapeSQLString(fieldName);
 
         const md = provider ?? Metadata.Provider;
         const rv = runView ?? new RunView();
@@ -348,7 +414,7 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
                 ExtraFilter:
                     `LinkedEntityID = '${cleanEntityId}' ` +
                     `AND LinkedRecordID = '${cleanRecordId}' ` +
-                    `AND AnchorType = 'field' ` +
+                    `AND AnchorType = 'Field' ` +
                     `AND AnchorKey = '${safeField}' ` +
                     `AND Outcome IS NULL AND IsResolved = 0`,
                 ResultType: 'entity_object',
@@ -367,23 +433,28 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
             existing.ResolvedByUserID = contextUser.ID;
             existing.ResolvedAt = new Date();
             const saved = await existing.Save();
-            if (!saved) {
-                const entityCopy = await md.GetEntityObject<IFieldSuggestionEntityRecord>(
-                    FIELD_SUGGESTIONS_ENTITY_NAME,
-                    contextUser,
-                );
-                if (await entityCopy.Load(existing.ID)) {
-                    entityCopy.Outcome = 'Superseded';
-                    entityCopy.IsResolved = true;
-                    entityCopy.ResolvedByUserID = contextUser.ID;
-                    entityCopy.ResolvedAt = new Date();
-                    const retrySaved = await entityCopy.Save();
-                    if (!retrySaved) {
-                        throw new Error(
-                            `Failed superseding Field Suggestion '${existing.ID}': ${entityCopy.LatestResult?.CompleteMessage ?? 'save failed'}`,
-                        );
-                    }
-                }
+            if (saved) {
+                count += 1;
+                continue;
+            }
+            const entityCopy = await md.GetEntityObject<IFieldSuggestionEntityRecord>(
+                FIELD_SUGGESTIONS_ENTITY_NAME,
+                contextUser,
+            );
+            const loaded = await entityCopy.Load(existing.ID);
+            if (!loaded) {
+                LogError(`Failed reloading Field Suggestion '${existing.ID}' during supersede retry`);
+                continue;
+            }
+            entityCopy.Outcome = 'Superseded';
+            entityCopy.IsResolved = true;
+            entityCopy.ResolvedByUserID = contextUser.ID;
+            entityCopy.ResolvedAt = new Date();
+            const retrySaved = await entityCopy.Save();
+            if (!retrySaved) {
+                const msg = `Failed superseding Field Suggestion '${existing.ID}': ${entityCopy.LatestResult?.CompleteMessage ?? 'save failed'}`;
+                LogError(msg);
+                throw new Error(msg);
             }
             count += 1;
         }
@@ -395,6 +466,8 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
         field: TasksOwnedPlanningFieldName,
         value: string | number,
         milestoneDueAt: string | null,
+        candidateObjectives: Array<{ id: string; name: string }>,
+        candidateCategories: Array<{ id: string; name: string }>,
     ): boolean {
         switch (field) {
             case 'DueAt': {
@@ -416,15 +489,27 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
                 if (task.ParentID != null) {
                     return false;
                 }
-                return typeof value === 'string' && IsValidUUIDString(value) && !UUIDsEqual(value, task.ID);
+                return (
+                    typeof value === 'string'
+                    && IsValidUUID(value)
+                    && !UUIDsEqual(value, task.ID)
+                    && candidateObjectives.some((o) => UUIDsEqual(o.id, value))
+                );
             }
             case 'CategoryID': {
                 if (task.CategoryID != null) {
                     return false;
                 }
-                return typeof value === 'string' && IsValidUUIDString(value);
+                return (
+                    typeof value === 'string'
+                    && IsValidUUID(value)
+                    && candidateCategories.some((c) => UUIDsEqual(c.id, value))
+                );
             }
             case 'Priority': {
+                if (task.Priority != null && String(task.Priority).trim().length > 0) {
+                    return false;
+                }
                 return (
                     typeof value === 'string' &&
                     (['Low', 'Medium', 'High', 'Urgent'] as const).includes(

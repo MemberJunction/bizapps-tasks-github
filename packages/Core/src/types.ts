@@ -39,6 +39,11 @@ export type TasksOwnedPlanningFieldName =
     | 'Priority'
     | 'CategoryID';
 
+export interface NormalizedGitHubUserRef {
+    login: string;
+    userId?: string | null;
+}
+
 export interface NormalizedGitHubIssueInput {
     kind: 'issue';
     number: number;
@@ -52,7 +57,9 @@ export interface NormalizedGitHubIssueInput {
     milestoneTitle?: string | null;
     milestoneDueAt?: string | Date | null;
     authorLogin?: string | null;
+    authorUserId?: string | null;
     assigneeLogins?: string[];
+    assignees?: NormalizedGitHubUserRef[];
     updatedAt?: string | Date | null;
 }
 
@@ -69,8 +76,11 @@ export interface NormalizedGitHubPullRequestInput {
     headSha?: string | null;
     baseBranch?: string | null;
     authorLogin?: string | null;
+    authorUserId?: string | null;
     assigneeLogins?: string[];
+    assignees?: NormalizedGitHubUserRef[];
     requestedReviewerLogins?: string[];
+    requestedReviewers?: NormalizedGitHubUserRef[];
     reviewDecision?: GitHubPullRequestReviewDecision | null;
     checksStatus?: GitHubPullRequestChecksStatus | null;
     changedFiles?: number | null;

@@ -6,22 +6,27 @@ import {
     RunView,
     UserInfo,
 } from '@memberjunction/core';
-import { BaseSingleton } from '@memberjunction/global';
+import { BaseSingleton, EscapeSQLString } from '@memberjunction/global';
 import type { mjBizAppsTasksGitHubGitHubRepositoryEntity } from '@mj-biz-apps/tasks-github-entities';
 import { GITHUB_REPOSITORIES_ENTITY, GitHubTaskSyncService } from './GitHubTaskSyncService.js';
-import { EscapeSqlLiteral } from './sql-safety.js';
 import type {
     GitHubIssueStateReason,
+    GitHubPullRequestChecksStatus,
     GitHubPullRequestReviewDecision,
     NormalizedGitHubIssueInput,
     NormalizedGitHubPullRequestInput,
     NormalizedGitHubSyncItem,
+    NormalizedGitHubUserRef,
     SingleItemSyncResult,
 } from './types.js';
 
 export type SupportedGitHubWebhookEvent = 'issues' | 'pull_request' | 'pull_request_review';
 
+const MAX_TRACKED_DELIVERY_IDS = 5000;
+
 interface WebhookUserPayload {
+    id?: number | string;
+    node_id?: string;
     login?: string;
 }
 
@@ -94,6 +99,7 @@ export interface HandleGitHubWebhookParams {
     rawPayload: string;
     webhookSecret: string;
     runInference?: boolean;
+    queueInference?: boolean;
     contextUser: UserInfo;
     provider?: IMetadataProvider & IRunViewProvider;
 }
@@ -105,12 +111,21 @@ export interface HandleGitHubWebhookResult {
 }
 
 export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
+    private readonly _processedDeliveries = new Set<string>();
+
     public constructor() {
         super();
     }
 
     public static get Instance(): GitHubWebhookService {
         return GitHubWebhookService.getInstance<GitHubWebhookService>();
+    }
+
+    /**
+     * Clears the in-memory processed `X-GitHub-Delivery` set (primarily used by tests).
+     */
+    public ClearProcessedDeliveries(): void {
+        this._processedDeliveries.clear();
     }
 
     /**
@@ -137,6 +152,11 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
     /**
      * Verifies and processes a single GitHub webhook delivery, immediately synchronizing the
      * affected issue or pull request into BizApps Tasks.
+     *
+     * Note: synchronous LLM inference is disabled by default inside webhook deliveries (`runInference: false`)
+     * so webhook requests complete well within GitHub's 10-second delivery window. Callers can set
+     * `queueInference: true` to debounce background inference for mapped contributors, or `runInference: true`
+     * when synchronous inference is explicitly desired.
      */
     public async HandleWebhook(params: HandleGitHubWebhookParams): Promise<HandleGitHubWebhookResult> {
         if (!params.webhookSecret || params.webhookSecret.trim().length === 0) {
@@ -153,8 +173,17 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             };
         }
 
+        const cleanDeliveryId = params.deliveryId?.trim() ?? '';
+        if (cleanDeliveryId.length > 0 && this._processedDeliveries.has(cleanDeliveryId)) {
+            return {
+                status: 'ignored',
+                reason: `Duplicate delivery ID '${cleanDeliveryId}' already processed`,
+            };
+        }
+
         const cleanEvent = params.eventName.trim();
         if (cleanEvent !== 'issues' && cleanEvent !== 'pull_request' && cleanEvent !== 'pull_request_review') {
+            this.recordDeliveryId(cleanDeliveryId);
             return {
                 status: 'ignored',
                 reason: `Unsupported GitHub webhook event '${cleanEvent}'`,
@@ -187,7 +216,7 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             {
                 EntityName: GITHUB_REPOSITORIES_ENTITY,
                 ExtraFilter:
-                    `Owner = '${EscapeSqlLiteral(owner)}' AND Name = '${EscapeSqlLiteral(repoName)}'`,
+                    `Owner = '${EscapeSQLString(owner)}' AND Name = '${EscapeSQLString(repoName)}'`,
                 MaxRows: 1,
                 ResultType: 'entity_object',
             },
@@ -199,6 +228,7 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
 
         const repository = repoRes.Results?.[0] ?? null;
         if (!repository || !repository.IsTracked) {
+            this.recordDeliveryId(cleanDeliveryId);
             return {
                 status: 'ignored',
                 reason: `Repository '${owner}/${repoName}' is not registered or not tracked`,
@@ -217,9 +247,12 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             repository,
             item: normalizedItem,
             contextUser: params.contextUser,
-            runInference: params.runInference !== false,
+            runInference: params.runInference === true,
+            queueInference: params.queueInference === true,
             provider: md as IMetadataProvider & IRunViewProvider,
         });
+
+        this.recordDeliveryId(cleanDeliveryId);
 
         if (syncResult.action === 'skipped') {
             return {
@@ -233,6 +266,28 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             status: 'synced',
             syncResult,
         };
+    }
+
+    private recordDeliveryId(deliveryId: string): void {
+        if (!deliveryId) return;
+        if (this._processedDeliveries.size >= MAX_TRACKED_DELIVERY_IDS) {
+            const oldest = this._processedDeliveries.values().next().value;
+            if (typeof oldest === 'string') {
+                this._processedDeliveries.delete(oldest);
+            }
+        }
+        this._processedDeliveries.add(deliveryId);
+    }
+
+    private extractUserRefs(users: WebhookUserPayload[] | undefined): NormalizedGitHubUserRef[] {
+        const refs: NormalizedGitHubUserRef[] = [];
+        for (const u of users ?? []) {
+            const login = u.login?.trim() ?? '';
+            if (!login) continue;
+            const userId = u.id != null ? String(u.id) : (u.node_id?.trim() || null);
+            refs.push({ login, userId });
+        }
+        return refs;
     }
 
     private extractNormalizedItem(
@@ -250,6 +305,11 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
                     ? rawReason
                     : null;
 
+            const assignees = this.extractUserRefs(issue.assignees);
+            const authorUserId = issue.user?.id != null
+                ? String(issue.user.id)
+                : (issue.user?.node_id?.trim() || null);
+
             const normalized: NormalizedGitHubIssueInput = {
                 kind: 'issue',
                 number: issue.number,
@@ -265,9 +325,9 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
                 milestoneTitle: issue.milestone?.title ?? null,
                 milestoneDueAt: issue.milestone?.due_on ?? null,
                 authorLogin: issue.user?.login ?? null,
-                assigneeLogins: (issue.assignees ?? [])
-                    .map((a) => a.login?.trim() ?? '')
-                    .filter((l) => l.length > 0),
+                authorUserId,
+                assigneeLogins: assignees.map((a) => a.login),
+                assignees,
                 updatedAt: issue.updated_at ?? null,
             };
             return normalized;
@@ -278,15 +338,30 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             return null;
         }
 
-        let reviewDecision: GitHubPullRequestReviewDecision | null = null;
+        let reviewDecision: GitHubPullRequestReviewDecision | null | undefined = undefined;
         if (eventName === 'pull_request_review') {
             const reviewState = (payload.review?.state ?? '').toLowerCase();
             if (reviewState === 'approved') {
                 reviewDecision = 'APPROVED';
             } else if (reviewState === 'changes_requested') {
                 reviewDecision = 'CHANGES_REQUESTED';
+            } else if (reviewState === 'dismissed') {
+                const hasRemainingReviewers = (pr.requested_reviewers?.length ?? 0) > 0;
+                reviewDecision = hasRemainingReviewers ? 'REVIEW_REQUIRED' : null;
             }
+            // Note: `commented` reviews do not alter aggregate reviewDecision (`undefined` preserves stored decision)
         }
+
+        let checksStatus: GitHubPullRequestChecksStatus | null | undefined = undefined;
+        if (eventName === 'pull_request' && payload.action === 'synchronize') {
+            checksStatus = 'Pending';
+        }
+
+        const assignees = this.extractUserRefs(pr.assignees);
+        const requestedReviewers = this.extractUserRefs(pr.requested_reviewers);
+        const authorUserId = pr.user?.id != null
+            ? String(pr.user.id)
+            : (pr.user?.node_id?.trim() || null);
 
         const linkedIssueNumber = this.extractClosingIssueNumber(pr.body ?? '');
 
@@ -303,16 +378,16 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             headSha: pr.head?.sha ?? null,
             baseBranch: pr.base?.ref ?? null,
             authorLogin: pr.user?.login ?? null,
-            assigneeLogins: (pr.assignees ?? [])
-                .map((a) => a.login?.trim() ?? '')
-                .filter((l) => l.length > 0),
-            requestedReviewerLogins: (pr.requested_reviewers ?? [])
-                .map((r) => r.login?.trim() ?? '')
-                .filter((l) => l.length > 0),
+            authorUserId,
+            assigneeLogins: assignees.map((a) => a.login),
+            assignees,
+            requestedReviewerLogins: requestedReviewers.map((r) => r.login),
+            requestedReviewers,
             reviewDecision,
-            changedFiles: pr.changed_files ?? null,
-            additions: pr.additions ?? null,
-            deletions: pr.deletions ?? null,
+            checksStatus,
+            changedFiles: typeof pr.changed_files === 'number' ? pr.changed_files : undefined,
+            additions: typeof pr.additions === 'number' ? pr.additions : undefined,
+            deletions: typeof pr.deletions === 'number' ? pr.deletions : undefined,
             labels: (pr.labels ?? [])
                 .map((l) => l.name?.trim() ?? '')
                 .filter((n) => n.length > 0),

@@ -18,11 +18,7 @@
       "CategoryID": "@lookup:MJ: AI Prompt Categories.Name=MJ: System"
     },
     "primaryKey": {
-      "ID": "A1B2C3D4-1109-4A11-9B05-000000000001"
-    },
-    "sync": {
-      "lastModified": "2026-11-09T23:04:48.351Z",
-      "checksum": "ed2ac1e399542d4b7a7d30f1dce85f94c7ab6616b9e3103a9b4f85d6defeb7af"
+      "ID": "AA901C7D-4870-4932-AFF0-B5FDE139B62D"
     }
   }
 ]

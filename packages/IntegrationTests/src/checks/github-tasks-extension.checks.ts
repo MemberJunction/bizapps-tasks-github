@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { IMetadataProvider, IRunViewProvider, RunView } from '@memberjunction/core';
-import { UUIDsEqual } from '@memberjunction/global';
+import { EscapeSQLString, UUIDsEqual } from '@memberjunction/global';
 import {
     Assert,
     AssertEqual,
@@ -50,11 +50,11 @@ const checks: NamedCheck[] = [
         Name: 'GH1 — Schema entities, IS-A ParentID to Tasks, FIELD_SUGGESTION comments, GITHUB_ISSUE/GITHUB_PR lifecycles, actions, prompt, and Chief of Staff skill',
         RequiresMutation: false,
         Fn: async (ctx) => {
-            const tasksInfo = ctx.Provider.Entities.find((e) => e.Name === TASKS_ENTITY_NAME);
-            const repoInfo = ctx.Provider.Entities.find((e) => e.Name === GITHUB_REPOSITORIES_ENTITY);
-            const idInfo = ctx.Provider.Entities.find((e) => e.Name === GITHUB_IDENTITIES_ENTITY);
-            const issueInfo = ctx.Provider.Entities.find((e) => e.Name === GITHUB_ISSUE_TASKS_ENTITY);
-            const prInfo = ctx.Provider.Entities.find((e) => e.Name === GITHUB_PR_TASKS_ENTITY);
+            const tasksInfo = ctx.Provider.EntityByName(TASKS_ENTITY_NAME);
+            const repoInfo = ctx.Provider.EntityByName(GITHUB_REPOSITORIES_ENTITY);
+            const idInfo = ctx.Provider.EntityByName(GITHUB_IDENTITIES_ENTITY);
+            const issueInfo = ctx.Provider.EntityByName(GITHUB_ISSUE_TASKS_ENTITY);
+            const prInfo = ctx.Provider.EntityByName(GITHUB_PR_TASKS_ENTITY);
 
             Assert(Boolean(tasksInfo), 'Tasks entity loaded');
             Assert(Boolean(repoInfo), 'GitHub Repositories entity loaded');
@@ -72,7 +72,7 @@ const checks: NamedCheck[] = [
             );
 
             const rv = RunView.FromMetadataProvider(ctx.Provider);
-            const [typesRes, actionsRes, skillsRes, agentSkillsRes] = await rv.RunViews([
+            const [typesRes, actionsRes, skillsRes] = await rv.RunViews([
                 {
                     EntityName: TASK_TYPES_ENTITY,
                     ExtraFilter: `Code IN ('GITHUB_ISSUE', 'GITHUB_PR')`,
@@ -88,11 +88,6 @@ const checks: NamedCheck[] = [
                     ExtraFilter: `Name = 'GitHub Tasks & Pull Requests'`,
                     ResultType: 'simple',
                 },
-                {
-                    EntityName: 'MJ: AI Agent Skills',
-                    ExtraFilter: `SkillID = 'A1B2C3D4-1109-4A11-9B08-000000000001'`,
-                    ResultType: 'simple',
-                },
             ], ctx.User);
 
             const taskTypes = (typesRes?.Results as TaskTypeExtensionRow[] | undefined) ?? [];
@@ -104,9 +99,19 @@ const checks: NamedCheck[] = [
             AssertEqual(prType.ExtensionEntity, GITHUB_PR_TASKS_ENTITY, 'GITHUB_PR ExtensionEntity');
 
             AssertEqual((actionsRes?.Results ?? []).length, 3, '3 TasksGitHub actions registered');
-            AssertEqual((skillsRes?.Results ?? []).length, 1, 'GitHub Tasks & Pull Requests skill exists');
+            const skillRows = (skillsRes?.Results as Array<{ ID: string }> | undefined) ?? [];
+            AssertEqual(skillRows.length, 1, 'GitHub Tasks & Pull Requests skill exists');
+
+            const agentSkillsRes = await rv.RunView<{ ID: string }>(
+                {
+                    EntityName: 'MJ: AI Agent Skills',
+                    ExtraFilter: `SkillID = '${EscapeSQLString(skillRows[0].ID)}'`,
+                    ResultType: 'simple',
+                },
+                ctx.User,
+            );
             Assert(
-                (agentSkillsRes?.Results ?? []).length >= 1,
+                (agentSkillsRes.Results ?? []).length >= 1,
                 'GitHub Tasks & Pull Requests skill granted to Chief of Staff',
             );
         },

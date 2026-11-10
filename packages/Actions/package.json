@@ -24,7 +24,7 @@
     "@memberjunction/core-entities": "6.2.1",
     "@memberjunction/global": "6.2.1",
     "@mj-biz-apps/common-entities": "5.62.0",
-    "@mj-biz-apps/tasks-entities": "1.10.0",
+    "@mj-biz-apps/tasks-entities": "1.11.1",
     "@types/node": "^22.10.2",
     "typescript": "^5.9.3",
     "vitest": "1.6.1"
@@ -34,13 +34,13 @@
     "@mj-biz-apps/tasks-github-entities": "^1.0.0"
   },
   "peerDependencies": {
-    "@memberjunction/actions": "^6.2.1",
-    "@memberjunction/actions-base": "^6.2.1",
-    "@memberjunction/core": "^6.2.1",
-    "@memberjunction/core-entities": "^6.2.1",
-    "@memberjunction/global": "^6.2.1",
+    "@memberjunction/actions": "^6.3.0",
+    "@memberjunction/actions-base": "^6.3.0",
+    "@memberjunction/core": "^6.3.0",
+    "@memberjunction/core-entities": "^6.3.0",
+    "@memberjunction/global": "^6.3.0",
     "@mj-biz-apps/common-entities": "^5.62.0",
-    "@mj-biz-apps/tasks-entities": "^1.10.0"
+    "@mj-biz-apps/tasks-entities": "^1.12.0"
   },
   "repository": {
     "type": "git",

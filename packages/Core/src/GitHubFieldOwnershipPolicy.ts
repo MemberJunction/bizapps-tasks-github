@@ -1,15 +1,42 @@
 import { createHash } from 'node:crypto';
 import type {
     CoreTaskStatus,
+    GitHubIssueState,
+    GitHubIssueStateReason,
     GitHubIssueTypeStatusCode,
+    GitHubPullRequestChecksStatus,
+    GitHubPullRequestReviewDecision,
+    GitHubPullRequestState,
     GitHubPullRequestTypeStatusCode,
     NormalizedGitHubIssueInput,
     NormalizedGitHubPullRequestInput,
+    NormalizedGitHubSyncItem,
+    NormalizedGitHubUserRef,
     TasksOwnedPlanningFieldName,
 } from './types.js';
 
 export type FieldOwnerSystem = 'GitHub' | 'Tasks';
 export type FieldSyncDirection = 'Pull' | 'NeverPushed' | 'NotSynced';
+
+export interface SyncItemValidationResult {
+    valid: boolean;
+    error?: string;
+    item?: NormalizedGitHubSyncItem;
+}
+
+export type CandidateSyncItemInput =
+    | NormalizedGitHubSyncItem
+    | Record<
+          string,
+          | string
+          | number
+          | boolean
+          | null
+          | undefined
+          | Date
+          | string[]
+          | NormalizedGitHubUserRef[]
+      >;
 
 export interface FieldOwnershipRule {
     readonly fieldKey: string;
@@ -129,7 +156,7 @@ export class GitHubFieldOwnershipPolicy {
             }
             return 'COMPLETED';
         }
-        const hasAssignees = (issue.assigneeLogins?.length ?? 0) > 0;
+        const hasAssignees = (issue.assigneeLogins?.length ?? 0) > 0 || (issue.assignees?.length ?? 0) > 0;
         return hasAssignees ? 'IN_PROGRESS' : 'OPEN';
     }
 
@@ -149,10 +176,217 @@ export class GitHubFieldOwnershipPolicy {
         if (pr.reviewDecision === 'APPROVED') {
             return 'APPROVED';
         }
-        if (pr.reviewDecision === 'REVIEW_REQUIRED' || (pr.requestedReviewerLogins?.length ?? 0) > 0) {
+        const hasReviewers =
+            (pr.requestedReviewerLogins?.length ?? 0) > 0
+            || (pr.requestedReviewers?.length ?? 0) > 0;
+        if (pr.reviewDecision === 'REVIEW_REQUIRED' || hasReviewers) {
             return 'REVIEW_REQUIRED';
         }
         return 'OPEN';
+    }
+
+    public static ValidateNormalizedGitHubSyncItem(
+        candidate: CandidateSyncItemInput | null | undefined,
+        expectedRepoFullName?: string,
+    ): SyncItemValidationResult {
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+            return { valid: false, error: 'Sync item must be a non-null JSON object' };
+        }
+        const raw = candidate as Record<
+            string,
+            string | number | boolean | null | undefined | Date | string[] | NormalizedGitHubUserRef[]
+        >;
+        const kind = raw.kind;
+        if (kind !== 'issue' && kind !== 'pull_request') {
+            return {
+                valid: false,
+                error: `Invalid sync item kind '${String(kind)}'; must be 'issue' or 'pull_request'`,
+            };
+        }
+        if (typeof raw.number !== 'number' || !Number.isInteger(raw.number) || raw.number <= 0) {
+            return { valid: false, error: 'Sync item number must be a positive integer' };
+        }
+        if (typeof raw.nodeId !== 'string' || raw.nodeId.trim().length === 0) {
+            return { valid: false, error: 'Sync item nodeId must be a non-empty string' };
+        }
+        if (typeof raw.title !== 'string' || raw.title.trim().length === 0) {
+            return { valid: false, error: 'Sync item title must be a non-empty string' };
+        }
+        if (raw.body != null && typeof raw.body !== 'string') {
+            return { valid: false, error: 'Sync item body must be a string or null' };
+        }
+        if (typeof raw.htmlUrl !== 'string' || !/^https?:\/\//i.test(raw.htmlUrl.trim())) {
+            return { valid: false, error: 'Sync item htmlUrl must be an HTTP(S) URL' };
+        }
+        if (expectedRepoFullName && expectedRepoFullName.trim().length > 0) {
+            const expectedPrefix = `https://github.com/${expectedRepoFullName.trim().toLowerCase()}/`;
+            if (!raw.htmlUrl.trim().toLowerCase().startsWith(expectedPrefix)) {
+                return {
+                    valid: false,
+                    error: `Sync item htmlUrl '${raw.htmlUrl}' does not belong to repository '${expectedRepoFullName}'`,
+                };
+            }
+        }
+
+        if (kind === 'issue') {
+            const state = raw.state;
+            if (state !== 'open' && state !== 'closed') {
+                return {
+                    valid: false,
+                    error: `Invalid issue state '${String(state)}'; must be 'open' or 'closed'`,
+                };
+            }
+            const stateReason = raw.stateReason;
+            if (
+                stateReason != null
+                && stateReason !== 'completed'
+                && stateReason !== 'not_planned'
+                && stateReason !== 'reopened'
+                && stateReason !== 'duplicate'
+            ) {
+                return {
+                    valid: false,
+                    error: `Invalid issue stateReason '${String(stateReason)}'`,
+                };
+            }
+            const issueItem: NormalizedGitHubIssueInput = {
+                kind: 'issue',
+                number: raw.number,
+                nodeId: raw.nodeId.trim(),
+                title: raw.title,
+                body: typeof raw.body === 'string' ? raw.body : null,
+                htmlUrl: raw.htmlUrl.trim(),
+                state: state as GitHubIssueState,
+                stateReason: (stateReason ?? null) as GitHubIssueStateReason | null,
+                labels: Array.isArray(raw.labels)
+                    ? raw.labels.filter((l): l is string => typeof l === 'string')
+                    : undefined,
+                milestoneTitle: typeof raw.milestoneTitle === 'string' ? raw.milestoneTitle : null,
+                milestoneDueAt:
+                    typeof raw.milestoneDueAt === 'string' || raw.milestoneDueAt instanceof Date
+                        ? raw.milestoneDueAt
+                        : null,
+                authorLogin: typeof raw.authorLogin === 'string' ? raw.authorLogin : null,
+                authorUserId: typeof raw.authorUserId === 'string' ? raw.authorUserId : null,
+                assigneeLogins: Array.isArray(raw.assigneeLogins)
+                    ? raw.assigneeLogins.filter((l): l is string => typeof l === 'string')
+                    : undefined,
+                assignees: Array.isArray(raw.assignees)
+                    ? (raw.assignees as NormalizedGitHubUserRef[])
+                    : undefined,
+                updatedAt:
+                    typeof raw.updatedAt === 'string' || raw.updatedAt instanceof Date
+                        ? raw.updatedAt
+                        : null,
+            };
+            return { valid: true, item: issueItem };
+        }
+
+        const prState = raw.state;
+        if (prState !== 'open' && prState !== 'closed' && prState !== 'merged') {
+            return {
+                valid: false,
+                error: `Invalid pull_request state '${String(prState)}'; must be 'open', 'closed', or 'merged'`,
+            };
+        }
+        const reviewDecision = raw.reviewDecision;
+        if (
+            reviewDecision !== undefined
+            && reviewDecision !== null
+            && reviewDecision !== 'APPROVED'
+            && reviewDecision !== 'CHANGES_REQUESTED'
+            && reviewDecision !== 'REVIEW_REQUIRED'
+        ) {
+            return {
+                valid: false,
+                error: `Invalid pull_request reviewDecision '${String(reviewDecision)}'`,
+            };
+        }
+        const checksStatus = raw.checksStatus;
+        if (
+            checksStatus !== undefined
+            && checksStatus !== null
+            && checksStatus !== 'Pending'
+            && checksStatus !== 'Success'
+            && checksStatus !== 'Failure'
+            && checksStatus !== 'Neutral'
+        ) {
+            return {
+                valid: false,
+                error: `Invalid pull_request checksStatus '${String(checksStatus)}'`,
+            };
+        }
+        const prItem: NormalizedGitHubPullRequestInput = {
+            kind: 'pull_request',
+            number: raw.number,
+            nodeId: raw.nodeId.trim(),
+            title: raw.title,
+            body: typeof raw.body === 'string' ? raw.body : null,
+            htmlUrl: raw.htmlUrl.trim(),
+            state: prState as GitHubPullRequestState,
+            isDraft: typeof raw.isDraft === 'boolean' ? raw.isDraft : undefined,
+            headBranch: typeof raw.headBranch === 'string' ? raw.headBranch : null,
+            headSha: typeof raw.headSha === 'string' ? raw.headSha : null,
+            baseBranch: typeof raw.baseBranch === 'string' ? raw.baseBranch : null,
+            authorLogin: typeof raw.authorLogin === 'string' ? raw.authorLogin : null,
+            authorUserId: typeof raw.authorUserId === 'string' ? raw.authorUserId : null,
+            assigneeLogins: Array.isArray(raw.assigneeLogins)
+                ? raw.assigneeLogins.filter((l): l is string => typeof l === 'string')
+                : undefined,
+            assignees: Array.isArray(raw.assignees)
+                ? (raw.assignees as NormalizedGitHubUserRef[])
+                : undefined,
+            requestedReviewerLogins: Array.isArray(raw.requestedReviewerLogins)
+                ? raw.requestedReviewerLogins.filter((l): l is string => typeof l === 'string')
+                : undefined,
+            requestedReviewers: Array.isArray(raw.requestedReviewers)
+                ? (raw.requestedReviewers as NormalizedGitHubUserRef[])
+                : undefined,
+            reviewDecision:
+                reviewDecision === undefined
+                    ? undefined
+                    : ((reviewDecision ?? null) as GitHubPullRequestReviewDecision | null),
+            checksStatus:
+                checksStatus === undefined
+                    ? undefined
+                    : ((checksStatus ?? null) as GitHubPullRequestChecksStatus | null),
+            changedFiles:
+                raw.changedFiles === undefined
+                    ? undefined
+                    : typeof raw.changedFiles === 'number'
+                      ? raw.changedFiles
+                      : null,
+            additions:
+                raw.additions === undefined
+                    ? undefined
+                    : typeof raw.additions === 'number'
+                      ? raw.additions
+                      : null,
+            deletions:
+                raw.deletions === undefined
+                    ? undefined
+                    : typeof raw.deletions === 'number'
+                      ? raw.deletions
+                      : null,
+            labels: Array.isArray(raw.labels)
+                ? raw.labels.filter((l): l is string => typeof l === 'string')
+                : undefined,
+            milestoneTitle: typeof raw.milestoneTitle === 'string' ? raw.milestoneTitle : null,
+            milestoneDueAt:
+                typeof raw.milestoneDueAt === 'string' || raw.milestoneDueAt instanceof Date
+                    ? raw.milestoneDueAt
+                    : null,
+            mergedAt:
+                typeof raw.mergedAt === 'string' || raw.mergedAt instanceof Date
+                    ? raw.mergedAt
+                    : null,
+            linkedIssueNumber: typeof raw.linkedIssueNumber === 'number' ? raw.linkedIssueNumber : null,
+            updatedAt:
+                typeof raw.updatedAt === 'string' || raw.updatedAt instanceof Date
+                    ? raw.updatedAt
+                    : null,
+        };
+        return { valid: true, item: prItem };
     }
 
     public static MapTypeStatusCodeToCoreStatus(

@@ -10,7 +10,7 @@
       "ExtensionEntity": "MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks"
     },
     "primaryKey": {
-      "ID": "A1B2C3D4-1109-4A11-9B06-000000000001"
+      "ID": "A1D17128-D2BF-4C18-905C-6422B58E6AC1"
     },
     "relatedEntities": {
       "MJ_BizApps_Tasks: Task Type Status": [
@@ -28,11 +28,7 @@
             "IsActive": true
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B06-000000000101"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:48.470Z",
-            "checksum": "26e35b330c183538e6aef8f7cc83ae231411fce62b5d0d994aa62cb4e7e47449"
+            "ID": "2CB403FB-5217-4E65-AFC2-78A2127D7BDA"
           }
         },
         {
@@ -49,11 +45,7 @@
             "IsActive": true
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B06-000000000102"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:48.486Z",
-            "checksum": "a3696d700c5728518d10f11e1d0e8146d575934e4ef786f4d2a87e276852af94"
+            "ID": "13B5E78F-D4A0-4BC9-8F19-C37BCBDBE811"
           }
         },
         {
@@ -70,11 +62,7 @@
             "IsActive": true
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B06-000000000103"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:48.504Z",
-            "checksum": "0853fef9277857fc76b631666b717ed60d65b4a9121bde5c6fb8bf0c92be6230"
+            "ID": "C308BC86-C335-4614-B78E-CE7654CA143D"
           }
         },
         {
@@ -91,11 +79,7 @@
             "IsActive": true
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B06-000000000104"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:48.520Z",
-            "checksum": "6a9ffe845ea99382635c17b7d99099d3b29210cd406b6abf7669cff6ca8ce222"
+            "ID": "2CFDFD0E-176C-4304-8BAD-CAAF6D25A3D8"
           }
         },
         {
@@ -112,18 +96,10 @@
             "IsActive": true
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B06-000000000105"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:48.536Z",
-            "checksum": "0091f1ec929f118bf42264422e013ee7857996f7582830c3157f5e43df41a46f"
+            "ID": "31DD4B5E-46E2-44B8-8CDF-EE4908F734A7"
           }
         }
       ]
-    },
-    "sync": {
-      "lastModified": "2026-11-09T23:04:48.409Z",
-      "checksum": "5ed072180a7807e6072faff0d351d04f37836f87d7c0498f23342fab84fb0108"
     }
   },
   {
@@ -137,7 +113,7 @@
       "ExtensionEntity": "MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks"
     },
     "primaryKey": {
-      "ID": "A1B2C3D4-1109-4A11-9B07-000000000001"
+      "ID": "A7390C71-90B3-482D-8304-3C61C1E39605"
     },
     "relatedEntities": {
       "MJ_BizApps_Tasks: Task Type Status": [
@@ -155,11 +131,7 @@
             "IsActive": true
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B07-000000000101"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:48.551Z",
-            "checksum": "7a1b14174a32c1dde6581c0c65ea4a3defa490ecc572e43ddd571ca9ae19039c"
+            "ID": "9B867CEF-0AAB-4CE4-9066-20222D47288D"
           }
         },
         {
@@ -176,11 +148,7 @@
             "IsActive": true
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B07-000000000102"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:48.567Z",
-            "checksum": "cb539047a7744b4a8b0beceff26469626dff49a1c90db37a22e2bb840bcffe6a"
+            "ID": "E97F643F-129A-403D-9DED-C91CB68DE098"
           }
         },
         {
@@ -197,11 +165,7 @@
             "IsActive": true
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B07-000000000103"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:48.582Z",
-            "checksum": "8ee4db6dff717c6b429dd52bbeb2d8200a6be643b958d7be835bdd05d5abb52f"
+            "ID": "C1C7F078-8EEC-4769-8712-E264999B8818"
           }
         },
         {
@@ -218,11 +182,7 @@
             "IsActive": true
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B07-000000000104"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:48.598Z",
-            "checksum": "f47bd33695d862532f49368c0dd768e5f2d97a485121622cd9b844e5a92f5625"
+            "ID": "7CA28F79-0C6C-4781-BA81-77651BE6F65A"
           }
         },
         {
@@ -239,11 +199,7 @@
             "IsActive": true
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B07-000000000105"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:48.612Z",
-            "checksum": "60e44b4f10057a7f33270666d46811026060e195bb71a9fa7f8dc8f04d867567"
+            "ID": "F331B5F5-B798-4567-8294-02A8F1F6B1E9"
           }
         },
         {
@@ -260,11 +216,7 @@
             "IsActive": true
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B07-000000000106"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:48.627Z",
-            "checksum": "f3a4c3c17de58cae31ca164e9eabc892778b66cb7a734a2381130de42770ae24"
+            "ID": "F5F54F95-49A9-4294-978F-A7EB64657EA3"
           }
         },
         {
@@ -281,11 +233,7 @@
             "IsActive": true
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B07-000000000107"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:48.642Z",
-            "checksum": "75f8f57c2dd960dcbb3d0289091e8945771f91dee6c1717b14753785065eded0"
+            "ID": "80CC4643-3EC2-437C-A525-DC92BF944471"
           }
         },
         {
@@ -302,18 +250,10 @@
             "IsActive": true
           },
           "primaryKey": {
-            "ID": "A1B2C3D4-1109-4A11-9B07-000000000108"
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:48.657Z",
-            "checksum": "663d0289817aaf0df1ee6ca78a3c91e5e361bd145a5b97fe272d66a63c86d822"
+            "ID": "2D345E51-16D2-47C3-ABD7-C32A233CE55F"
           }
         }
       ]
-    },
-    "sync": {
-      "lastModified": "2026-11-09T23:04:48.428Z",
-      "checksum": "ffd2d600c7ef81874537f3549c5530bb7d6a7b371d3547f45c118128363f215e"
     }
   }
 ]

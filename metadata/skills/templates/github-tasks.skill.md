@@ -19,7 +19,6 @@ Every field on a GitHub-backed Task has a single authoritative owner:
 ## 2. BizApps Tasks GitHub Extension Actions
 
 - **`Sync GitHub Repository Tasks`**: Reconciles tracked `GitHub Repositories` (`ImportRule = 'AssignedOnly'` or `'All'`) idempotently by `(RepositoryID, Number)` and `NodeID`.
-- **`Handle GitHub Tasks Webhook`**: Verifies `X-Hub-Signature-256` and syncs the single affected issue or PR immediately.
 - **`Infer GitHub Task Planning Fields`**: Proposes `MJ: Field Suggestions` on `DueAt`, `HoursEstimated`, `ParentID` (objective), `Priority`, and `CategoryID` without touching GitHub-owned fields.
 
 ## 3. MemberJunction 6.3 GitHub Actions (Acting as the User or Scoped GitHub App)

@@ -38,8 +38,6 @@ SET standard_conforming_strings = on;
 
 -- ===================== DDL: Tables, PKs, Indexes =====================
 
-CREATE SCHEMA IF NOT EXISTS __mj_bizappstasksgithub;
-
 ---------------------------------------------------------------------------
 -- 1. GitHubRepository
 ---------------------------------------------------------------------------
@@ -62,9 +60,6 @@ CREATE TABLE __mj_BizAppsTasksGitHub."GitHubRepository" (
 CREATE INDEX IF NOT EXISTS "IX_GitHubRepository_IsTracked"
     ON __mj_BizAppsTasksGitHub."GitHubRepository" ("IsTracked");
 
-CREATE INDEX IF NOT EXISTS "IX_GitHubRepository_OrganizationID"
-    ON __mj_BizAppsTasksGitHub."GitHubRepository" ("OrganizationID");
-
 ---------------------------------------------------------------------------
 -- 2. GitHubIdentity
 ---------------------------------------------------------------------------
@@ -78,9 +73,6 @@ CREATE TABLE __mj_BizAppsTasksGitHub."GitHubIdentity" (
  CONSTRAINT "UQ_GitHubIdentity_Login" UNIQUE ("GitHubLogin"),
  CONSTRAINT "FK_GitHubIdentity_Person" FOREIGN KEY ("PersonID") REFERENCES __mj_BizAppsCommon."Person"("ID")
 );
-
-CREATE INDEX IF NOT EXISTS "IX_GitHubIdentity_PersonID"
-    ON __mj_BizAppsTasksGitHub."GitHubIdentity" ("PersonID");
 
 ---------------------------------------------------------------------------
 -- 3. GitHubIssueTask (IS-A Disjoint Child of __mj_BizAppsTasks.Task)
@@ -159,9 +151,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS "UX_GitHubPRTask_Repo_Number"
 CREATE UNIQUE INDEX IF NOT EXISTS "UX_GitHubPRTask_NodeID"
     ON __mj_BizAppsTasksGitHub."GitHubPullRequestTask" ("NodeID")
     WHERE "NodeID" IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS "IX_GitHubPRTask_LinkedIssueTaskID"
-    ON __mj_BizAppsTasksGitHub."GitHubPullRequestTask" ("LinkedIssueTaskID");
 
 ALTER TABLE __mj_BizAppsTasksGitHub."GitHubRepository"
  ADD COLUMN IF NOT EXISTS "__mj_CreatedAt" TIMESTAMPTZ NULL;
@@ -982,55 +971,6 @@ INSERT INTO ${mjSchema}."Entity" (
          , NOW()
       );
 
-/* SQL generated to create new application __mj_BizAppsTasksGitHub */
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM ${mjSchema}."Application" WHERE "ID" = '3fdb3d32-6722-4638-98b5-20185684874e'
-    ) THEN
-        INSERT INTO ${mjSchema}."Application" ("ID", "Name", "Description", "SchemaAutoAddNewEntities", "Path", "AutoUpdatePath", "DefaultForNewUser")
-        VALUES ('3fdb3d32-6722-4638-98b5-20185684874e', '__mj_BizAppsTasksGitHub', 'Generated for schema', '__mj_BizAppsTasksGitHub', 'mjbizappstasksgithub', TRUE, FALSE);
-    END IF;
-END $$;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM ${mjSchema}."ApplicationRole" WHERE "ApplicationID" = '3fdb3d32-6722-4638-98b5-20185684874e' AND "RoleID" = 'E0AFCCEC-6A37-EF11-86D4-000D3A4E707E'
-    ) THEN
-        INSERT INTO ${mjSchema}."ApplicationRole"
-        ("ApplicationID", "RoleID", "CanAccess", "CanAdmin") VALUES
-        ('3fdb3d32-6722-4638-98b5-20185684874e', 'E0AFCCEC-6A37-EF11-86D4-000D3A4E707E', TRUE, FALSE);
-    END IF;
-END $$;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM ${mjSchema}."ApplicationRole" WHERE "ApplicationID" = '3fdb3d32-6722-4638-98b5-20185684874e' AND "RoleID" = 'DEAFCCEC-6A37-EF11-86D4-000D3A4E707E'
-    ) THEN
-        INSERT INTO ${mjSchema}."ApplicationRole"
-        ("ApplicationID", "RoleID", "CanAccess", "CanAdmin") VALUES
-        ('3fdb3d32-6722-4638-98b5-20185684874e', 'DEAFCCEC-6A37-EF11-86D4-000D3A4E707E', TRUE, TRUE);
-    END IF;
-END $$;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM ${mjSchema}."ApplicationRole" WHERE "ApplicationID" = '3fdb3d32-6722-4638-98b5-20185684874e' AND "RoleID" = 'DFAFCCEC-6A37-EF11-86D4-000D3A4E707E'
-    ) THEN
-        INSERT INTO ${mjSchema}."ApplicationRole"
-        ("ApplicationID", "RoleID", "CanAccess", "CanAdmin") VALUES
-        ('3fdb3d32-6722-4638-98b5-20185684874e', 'DFAFCCEC-6A37-EF11-86D4-000D3A4E707E', TRUE, FALSE);
-    END IF;
-END $$;
-
-INSERT INTO ${mjSchema}."ApplicationEntity"
-                                    ("ApplicationID", "EntityID", "Sequence", "__mj_CreatedAt", "__mj_UpdatedAt") VALUES
-                                    ('3fdb3d32-6722-4638-98b5-20185684874e', '6b363236-31ab-477d-8188-08f5fa9942ef', (SELECT COALESCE(MAX("Sequence"),0)+1 FROM ${mjSchema}."ApplicationEntity" WHERE "ApplicationID" = '3fdb3d32-6722-4638-98b5-20185684874e'), NOW(), NOW());
-
 /* SQL generated to add new permission for entity MJ_BizApps_Tasks_GitHub: Git Hub Repositories for role UI */
 
 INSERT INTO ${mjSchema}."EntityPermission"
@@ -1109,12 +1049,6 @@ INSERT INTO ${mjSchema}."Entity" (
          , NOW()
          , NOW()
       );
-
-/* SQL generated to add entity MJ_BizApps_Tasks_GitHub: Git Hub Identities to application ID: '3FDB3D32-6722-4638-98B5-20185684874E' */
-
-INSERT INTO ${mjSchema}."ApplicationEntity"
-                                    ("ApplicationID", "EntityID", "Sequence", "__mj_CreatedAt", "__mj_UpdatedAt") VALUES
-                                    ('3FDB3D32-6722-4638-98B5-20185684874E', 'c7cc2bcf-090e-4832-89c7-a051f302c393', (SELECT COALESCE(MAX("Sequence"),0)+1 FROM ${mjSchema}."ApplicationEntity" WHERE "ApplicationID" = '3FDB3D32-6722-4638-98B5-20185684874E'), NOW(), NOW());
 
 /* SQL generated to add new permission for entity MJ_BizApps_Tasks_GitHub: Git Hub Identities for role UI */
 
@@ -1195,12 +1129,6 @@ INSERT INTO ${mjSchema}."Entity" (
          , NOW()
       );
 
-/* SQL generated to add entity MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks to application ID: '3FDB3D32-6722-4638-98B5-20185684874E' */
-
-INSERT INTO ${mjSchema}."ApplicationEntity"
-                                    ("ApplicationID", "EntityID", "Sequence", "__mj_CreatedAt", "__mj_UpdatedAt") VALUES
-                                    ('3FDB3D32-6722-4638-98B5-20185684874E', 'dc8e0f5b-e172-4fd5-b648-8b4544f8c605', (SELECT COALESCE(MAX("Sequence"),0)+1 FROM ${mjSchema}."ApplicationEntity" WHERE "ApplicationID" = '3FDB3D32-6722-4638-98B5-20185684874E'), NOW(), NOW());
-
 /* SQL generated to add new permission for entity MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks for role UI */
 
 INSERT INTO ${mjSchema}."EntityPermission"
@@ -1279,12 +1207,6 @@ INSERT INTO ${mjSchema}."Entity" (
          , NOW()
          , NOW()
       );
-
-/* SQL generated to add entity MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks to application ID: '3FDB3D32-6722-4638-98B5-20185684874E' */
-
-INSERT INTO ${mjSchema}."ApplicationEntity"
-                                    ("ApplicationID", "EntityID", "Sequence", "__mj_CreatedAt", "__mj_UpdatedAt") VALUES
-                                    ('3FDB3D32-6722-4638-98B5-20185684874E', 'a6b673f8-43bc-4875-aff6-ac620592822e', (SELECT COALESCE(MAX("Sequence"),0)+1 FROM ${mjSchema}."ApplicationEntity" WHERE "ApplicationID" = '3FDB3D32-6722-4638-98B5-20185684874E'), NOW(), NOW());
 
 /* SQL generated to add new permission for entity MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks for role UI */
 
@@ -6334,10 +6256,6 @@ BEGIN
     END IF;
 END $$;
 
-UPDATE ${mjSchema}."ApplicationEntity"
-         SET "DefaultForNewUser" = TRUE, "__mj_UpdatedAt" = NOW()
-         WHERE "EntityID" = '6B363236-31AB-477D-8188-08F5FA9942EF';
-
 /* Set categories for 28 fields */
 
 -- UPDATE Entity Field Category Info MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks.ID
@@ -6657,10 +6575,6 @@ BEGIN
     END IF;
 END $$;
 
-UPDATE ${mjSchema}."ApplicationEntity"
-         SET "DefaultForNewUser" = TRUE, "__mj_UpdatedAt" = NOW()
-         WHERE "EntityID" = 'A6B673F8-43BC-4875-AFF6-AC620592822E';
-
 /* Set field properties for entity */
 
 UPDATE ${mjSchema}."EntityField"
@@ -6790,10 +6704,6 @@ BEGIN
         }', NOW(), NOW());
     END IF;
 END $$;
-
-UPDATE ${mjSchema}."ApplicationEntity"
-         SET "DefaultForNewUser" = FALSE, "__mj_UpdatedAt" = NOW()
-         WHERE "EntityID" = 'C7CC2BCF-090E-4832-89C7-A051F302C393';
 
 /* Set categories for 17 fields */
 
@@ -7004,10 +6914,6 @@ BEGIN
         }', NOW(), NOW());
     END IF;
 END $$;
-
-UPDATE ${mjSchema}."ApplicationEntity"
-         SET "DefaultForNewUser" = TRUE, "__mj_UpdatedAt" = NOW()
-         WHERE "EntityID" = 'DC8E0F5B-E172-4FD5-B648-8B4544F8C605';
 
 
 /* SQL text to update existing entities from schema */

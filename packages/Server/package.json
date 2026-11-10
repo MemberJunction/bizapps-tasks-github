@@ -25,7 +25,7 @@
     "@memberjunction/server": "6.2.1",
     "@memberjunction/sqlserver-dataprovider": "6.2.1",
     "@mj-biz-apps/common-entities": "5.62.0",
-    "@mj-biz-apps/tasks-entities": "1.10.0",
+    "@mj-biz-apps/tasks-entities": "1.11.1",
     "@types/node": "^22.10.2",
     "typescript": "^5.9.3",
     "vitest": "1.6.1"
@@ -37,14 +37,25 @@
     "class-validator": "^0.14.3"
   },
   "peerDependencies": {
-    "@memberjunction/actions": "^6.2.1",
-    "@memberjunction/core": "^6.2.1",
-    "@memberjunction/core-entities": "^6.2.1",
-    "@memberjunction/global": "^6.2.1",
-    "@memberjunction/server": "^6.2.1",
-    "@memberjunction/sqlserver-dataprovider": "^6.2.1",
+    "@memberjunction/actions": "^6.3.0",
+    "@memberjunction/core": "^6.3.0",
+    "@memberjunction/core-entities": "^6.3.0",
+    "@memberjunction/global": "^6.3.0",
+    "@memberjunction/server": "^6.3.0",
+    "@memberjunction/sqlserver-dataprovider": "^6.3.0",
     "@mj-biz-apps/common-entities": "^5.62.0",
-    "@mj-biz-apps/tasks-entities": "^1.10.0"
+    "@mj-biz-apps/tasks-entities": "^1.12.0"
+  },
+  "memberjunction": {
+    "serverExtensions": [
+      {
+        "Enabled": true,
+        "DriverClass": "GitHubTasksWebhookServerExtension",
+        "RootPath": "/webhooks/github/tasks",
+        "Phase": "pre-auth",
+        "Settings": {}
+      }
+    ]
   },
   "repository": {
     "type": "git",

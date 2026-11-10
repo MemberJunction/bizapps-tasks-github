@@ -17,10 +17,6 @@
             "CanCreate": 1,
             "CanUpdate": 1,
             "CanDelete": 0
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:40.826Z",
-            "checksum": "8ba759f158286060fad5a1b1e38b351b09000ca687793216187e9b8a81b9914d"
           }
         }
       ]
@@ -44,10 +40,6 @@
             "CanCreate": 1,
             "CanUpdate": 1,
             "CanDelete": 1
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:40.836Z",
-            "checksum": "86900c975055b2198aa42eece8932960bb55963d886b074a9b26b478a00829b0"
           }
         }
       ]
@@ -71,10 +63,6 @@
             "CanCreate": 1,
             "CanUpdate": 1,
             "CanDelete": 0
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:40.844Z",
-            "checksum": "8ba759f158286060fad5a1b1e38b351b09000ca687793216187e9b8a81b9914d"
           }
         }
       ]
@@ -98,10 +86,6 @@
             "CanCreate": 1,
             "CanUpdate": 1,
             "CanDelete": 0
-          },
-          "sync": {
-            "lastModified": "2026-11-09T23:04:40.852Z",
-            "checksum": "8ba759f158286060fad5a1b1e38b351b09000ca687793216187e9b8a81b9914d"
           }
         }
       ]

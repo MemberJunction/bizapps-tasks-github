@@ -11,10 +11,6 @@
 --      GITHUB_PR tasks with idempotent keys, review/checks status, & linked issue.
 -- =============================================================================
 
-IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = N'${flyway:defaultSchema}')
-    EXEC('CREATE SCHEMA [${flyway:defaultSchema}]');
-GO
-
 ---------------------------------------------------------------------------
 -- 1. GitHubRepository
 ---------------------------------------------------------------------------
@@ -37,10 +33,6 @@ GO
 
 CREATE INDEX [IX_GitHubRepository_IsTracked]
     ON [${flyway:defaultSchema}].[GitHubRepository] ([IsTracked]);
-GO
-
-CREATE INDEX [IX_GitHubRepository_OrganizationID]
-    ON [${flyway:defaultSchema}].[GitHubRepository] ([OrganizationID]);
 GO
 
 EXEC sp_addextendedproperty
@@ -127,10 +119,6 @@ CREATE TABLE [${flyway:defaultSchema}].[GitHubIdentity] (
     CONSTRAINT [UQ_GitHubIdentity_Login] UNIQUE ([GitHubLogin]),
     CONSTRAINT [FK_GitHubIdentity_Person] FOREIGN KEY ([PersonID]) REFERENCES [__mj_BizAppsCommon].[Person]([ID])
 );
-GO
-
-CREATE INDEX [IX_GitHubIdentity_PersonID]
-    ON [${flyway:defaultSchema}].[GitHubIdentity] ([PersonID]);
 GO
 
 EXEC sp_addextendedproperty
@@ -373,10 +361,6 @@ GO
 CREATE UNIQUE INDEX [UX_GitHubPRTask_NodeID]
     ON [${flyway:defaultSchema}].[GitHubPullRequestTask] ([NodeID])
     WHERE [NodeID] IS NOT NULL;
-GO
-
-CREATE INDEX [IX_GitHubPRTask_LinkedIssueTaskID]
-    ON [${flyway:defaultSchema}].[GitHubPullRequestTask] ([LinkedIssueTaskID]);
 GO
 
 EXEC sp_addextendedproperty
@@ -685,50 +669,6 @@ GO
          , GETUTCDATE()
       );
 
-/* SQL generated to create new application ${flyway:defaultSchema} */
-IF NOT EXISTS (
-      SELECT 1 FROM [${mjSchema}].[Application] WHERE [ID] = '3fdb3d32-6722-4638-98b5-20185684874e'
-   )
-   BEGIN
-      INSERT INTO [${mjSchema}].[Application] ([ID], [Name], [Description], [SchemaAutoAddNewEntities], [Path], [AutoUpdatePath], [DefaultForNewUser])
-                       VALUES ('3fdb3d32-6722-4638-98b5-20185684874e', '${flyway:defaultSchema}', 'Generated for schema', '${flyway:defaultSchema}', 'mjbizappstasksgithub', 1, 0)
-   END;
-
-/* Adding role UI to application ${flyway:defaultSchema} */
-IF NOT EXISTS (
-      SELECT 1 FROM [${mjSchema}].[ApplicationRole] WHERE [ApplicationID] = '3fdb3d32-6722-4638-98b5-20185684874e' AND [RoleID] = 'E0AFCCEC-6A37-EF11-86D4-000D3A4E707E'
-   )
-   BEGIN
-      INSERT INTO [${mjSchema}].[ApplicationRole]
-                                 ([ApplicationID], [RoleID], [CanAccess], [CanAdmin]) VALUES
-                                 ('3fdb3d32-6722-4638-98b5-20185684874e', 'E0AFCCEC-6A37-EF11-86D4-000D3A4E707E', 1, 0)
-   END;
-
-/* Adding role Developer to application ${flyway:defaultSchema} */
-IF NOT EXISTS (
-      SELECT 1 FROM [${mjSchema}].[ApplicationRole] WHERE [ApplicationID] = '3fdb3d32-6722-4638-98b5-20185684874e' AND [RoleID] = 'DEAFCCEC-6A37-EF11-86D4-000D3A4E707E'
-   )
-   BEGIN
-      INSERT INTO [${mjSchema}].[ApplicationRole]
-                                 ([ApplicationID], [RoleID], [CanAccess], [CanAdmin]) VALUES
-                                 ('3fdb3d32-6722-4638-98b5-20185684874e', 'DEAFCCEC-6A37-EF11-86D4-000D3A4E707E', 1, 1)
-   END;
-
-/* Adding role Integration to application ${flyway:defaultSchema} */
-IF NOT EXISTS (
-      SELECT 1 FROM [${mjSchema}].[ApplicationRole] WHERE [ApplicationID] = '3fdb3d32-6722-4638-98b5-20185684874e' AND [RoleID] = 'DFAFCCEC-6A37-EF11-86D4-000D3A4E707E'
-   )
-   BEGIN
-      INSERT INTO [${mjSchema}].[ApplicationRole]
-                                 ([ApplicationID], [RoleID], [CanAccess], [CanAdmin]) VALUES
-                                 ('3fdb3d32-6722-4638-98b5-20185684874e', 'DFAFCCEC-6A37-EF11-86D4-000D3A4E707E', 1, 0)
-   END;
-
-/* SQL generated to add entity MJ_BizApps_Tasks_GitHub: Git Hub Repositories to application ID: '3fdb3d32-6722-4638-98b5-20185684874e' */
-INSERT INTO [${mjSchema}].[ApplicationEntity]
-                                    ([ApplicationID], [EntityID], [Sequence], [__mj_CreatedAt], [__mj_UpdatedAt]) VALUES
-                                    ('3fdb3d32-6722-4638-98b5-20185684874e', '6b363236-31ab-477d-8188-08f5fa9942ef', (SELECT COALESCE(MAX([Sequence]),0)+1 FROM [${mjSchema}].[ApplicationEntity] WHERE [ApplicationID] = '3fdb3d32-6722-4638-98b5-20185684874e'), GETUTCDATE(), GETUTCDATE());
-
 /* SQL generated to add new permission for entity MJ_BizApps_Tasks_GitHub: Git Hub Repositories for role UI */
 INSERT INTO [${mjSchema}].[EntityPermission]
                 ([EntityID], [RoleID], [Type], [CanRead], [CanCreate], [CanUpdate], [CanDelete], [__mj_CreatedAt], [__mj_UpdatedAt])
@@ -804,11 +744,6 @@ INSERT INTO [${mjSchema}].[EntityPermission]
          , GETUTCDATE()
          , GETUTCDATE()
       );
-
-/* SQL generated to add entity MJ_BizApps_Tasks_GitHub: Git Hub Identities to application ID: '3FDB3D32-6722-4638-98B5-20185684874E' */
-INSERT INTO [${mjSchema}].[ApplicationEntity]
-                                    ([ApplicationID], [EntityID], [Sequence], [__mj_CreatedAt], [__mj_UpdatedAt]) VALUES
-                                    ('3FDB3D32-6722-4638-98B5-20185684874E', 'c7cc2bcf-090e-4832-89c7-a051f302c393', (SELECT COALESCE(MAX([Sequence]),0)+1 FROM [${mjSchema}].[ApplicationEntity] WHERE [ApplicationID] = '3FDB3D32-6722-4638-98B5-20185684874E'), GETUTCDATE(), GETUTCDATE());
 
 /* SQL generated to add new permission for entity MJ_BizApps_Tasks_GitHub: Git Hub Identities for role UI */
 INSERT INTO [${mjSchema}].[EntityPermission]
@@ -886,11 +821,6 @@ INSERT INTO [${mjSchema}].[EntityPermission]
          , GETUTCDATE()
       );
 
-/* SQL generated to add entity MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks to application ID: '3FDB3D32-6722-4638-98B5-20185684874E' */
-INSERT INTO [${mjSchema}].[ApplicationEntity]
-                                    ([ApplicationID], [EntityID], [Sequence], [__mj_CreatedAt], [__mj_UpdatedAt]) VALUES
-                                    ('3FDB3D32-6722-4638-98B5-20185684874E', 'dc8e0f5b-e172-4fd5-b648-8b4544f8c605', (SELECT COALESCE(MAX([Sequence]),0)+1 FROM [${mjSchema}].[ApplicationEntity] WHERE [ApplicationID] = '3FDB3D32-6722-4638-98B5-20185684874E'), GETUTCDATE(), GETUTCDATE());
-
 /* SQL generated to add new permission for entity MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks for role UI */
 INSERT INTO [${mjSchema}].[EntityPermission]
                 ([EntityID], [RoleID], [Type], [CanRead], [CanCreate], [CanUpdate], [CanDelete], [__mj_CreatedAt], [__mj_UpdatedAt])
@@ -966,11 +896,6 @@ INSERT INTO [${mjSchema}].[EntityPermission]
          , GETUTCDATE()
          , GETUTCDATE()
       );
-
-/* SQL generated to add entity MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks to application ID: '3FDB3D32-6722-4638-98B5-20185684874E' */
-INSERT INTO [${mjSchema}].[ApplicationEntity]
-                                    ([ApplicationID], [EntityID], [Sequence], [__mj_CreatedAt], [__mj_UpdatedAt]) VALUES
-                                    ('3FDB3D32-6722-4638-98B5-20185684874E', 'a6b673f8-43bc-4875-aff6-ac620592822e', (SELECT COALESCE(MAX([Sequence]),0)+1 FROM [${mjSchema}].[ApplicationEntity] WHERE [ApplicationID] = '3FDB3D32-6722-4638-98B5-20185684874E'), GETUTCDATE(), GETUTCDATE());
 
 /* SQL generated to add new permission for entity MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks for role UI */
 INSERT INTO [${mjSchema}].[EntityPermission]
@@ -7016,12 +6941,6 @@ IF NOT EXISTS (
 }', GETUTCDATE(), GETUTCDATE())
    END;
 
-/* Set DefaultForNewUser=true for NEW entity (category: primary, confidence: high) */
-
-         UPDATE [${mjSchema}].[ApplicationEntity]
-         SET [DefaultForNewUser] = 1, [__mj_UpdatedAt] = GETUTCDATE()
-         WHERE [EntityID] = '6B363236-31AB-477D-8188-08F5FA9942EF';
-
 /* Set categories for 28 fields */
 
 -- UPDATE Entity Field Category Info MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks.ID 
@@ -7309,12 +7228,6 @@ IF NOT EXISTS (
 }', GETUTCDATE(), GETUTCDATE())
    END;
 
-/* Set DefaultForNewUser=true for NEW entity (category: primary, confidence: high) */
-
-         UPDATE [${mjSchema}].[ApplicationEntity]
-         SET [DefaultForNewUser] = 1, [__mj_UpdatedAt] = GETUTCDATE()
-         WHERE [EntityID] = 'A6B673F8-43BC-4875-AFF6-AC620592822E';
-
 /* Set field properties for entity */
 
                UPDATE [${mjSchema}].[EntityField]
@@ -7432,12 +7345,6 @@ IF NOT EXISTS (
   "System Metadata": "fa fa-cog"
 }', GETUTCDATE(), GETUTCDATE())
    END;
-
-/* Set DefaultForNewUser=false for NEW entity (category: reference, confidence: high) */
-
-         UPDATE [${mjSchema}].[ApplicationEntity]
-         SET [DefaultForNewUser] = 0, [__mj_UpdatedAt] = GETUTCDATE()
-         WHERE [EntityID] = 'C7CC2BCF-090E-4832-89C7-A051F302C393';
 
 /* Set categories for 17 fields */
 
@@ -7627,14 +7534,6 @@ IF NOT EXISTS (
   "System Metadata": "fa fa-cog"
 }', GETUTCDATE(), GETUTCDATE())
    END;
-
-/* Set DefaultForNewUser=true for NEW entity (category: supporting, confidence: high) */
-
-         UPDATE [${mjSchema}].[ApplicationEntity]
-         SET [DefaultForNewUser] = 1, [__mj_UpdatedAt] = GETUTCDATE()
-         WHERE [EntityID] = 'DC8E0F5B-E172-4FD5-B648-8B4544F8C605';
-
-
 
 /* SQL text to update existing entities from schema */
 EXEC [${mjSchema}].[spUpdateExistingEntitiesFromSchema] @ExcludedSchemaNames='', @IncludedSchemaNames='${flyway:defaultSchema}';

@@ -6,6 +6,8 @@ import { LoadTasksGitHubActions } from '@mj-biz-apps/tasks-github-actions';
 import '@mj-biz-apps/tasks-github-core';
 import './generated/generated.js';
 
+import { GitHubTasksWebhookServerExtension } from './webhookMiddleware.js';
+
 export * from './generated/generated.js';
 export * from './webhookMiddleware.js';
 
@@ -19,4 +21,5 @@ export const RESOLVER_PATHS: string[] = [
 export function LoadBizAppsTasksGitHubServer(): void {
     LoadTasksGitHubEntities();
     LoadTasksGitHubActions();
+    void GitHubTasksWebhookServerExtension;
 }
