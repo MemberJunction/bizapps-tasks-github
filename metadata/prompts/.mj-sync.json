@@ -1,0 +1,7 @@
+{
+  "entity": "MJ: AI Prompts",
+  "filePattern": "**/.*.json",
+  "ignoreDirectories": [
+    "templates"
+  ]
+}

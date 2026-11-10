@@ -37,9 +37,11 @@ jobs:
         run: |
           ./.github/scripts/validate-package-repository.sh
           ./.github/scripts/validate-package-files.sh
+          ./.github/scripts/validate-metadata-directory-order.sh
           node ./.github/scripts/check-dependency-model.mjs
           node ./.github/scripts/check-caret-pins.mjs
           ./.github/scripts/validate-migration-filenames.sh
+          if [ "${{ github.event_name }}" = "pull_request" ]; then ./.github/scripts/check-pg-counterpart.sh "origin/${{ github.base_ref }}" HEAD; fi
           node ./.github/scripts/check-migration-entityfield-sequence.mjs
           node ./.github/scripts/check-migration-no-prune.mjs
 

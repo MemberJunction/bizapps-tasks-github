@@ -1,0 +1,22 @@
+{
+  "version": "1.0.0",
+  "push": {
+    "autoCreateMissingRecords": true
+  },
+  "directoryOrder": [
+    "entities",
+    "action-categories",
+    "actions",
+    "prompts",
+    "task-types",
+    "skills"
+  ],
+  "emitSyncNotes": false,
+  "sqlLogging": {
+    "enabled": true,
+    "outputDirectory": "./sql_logging",
+    "formatAsMigration": true,
+    "filterPatterns": ["*spCreateAIPromptRun*", "*spUpdateAIPromptRun*"],
+    "filterType": "exclude"
+  }
+}

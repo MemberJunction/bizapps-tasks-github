@@ -1,0 +1,393 @@
+[
+  {
+    "fields": {
+      "Name": "Sync GitHub Repository Tasks",
+      "CategoryID": "@lookup:MJ: Action Categories.Name=Tasks GitHub",
+      "Description": "Idempotently synchronizes GitHub Issues and Pull Requests for one or all tracked GitHubRepository rows into MJ_BizApps_Tasks: Tasks and their IS-A extension tables, enforcing ImportRule (AssignedOnly vs All), pull-only field ownership, Primary/Reviewer TaskAssignment mapping via GitHubIdentity, milestone due-date superseding, and Field Suggestion inference.",
+      "Type": "Custom",
+      "DriverClass": "TasksGitHub.SyncRepositoryTasks",
+      "IconClass": "fa-brands fa-github",
+      "UserPrompt": "Sync GitHub issues and pull requests into BizApps Tasks.",
+      "CodeApprovalStatus": "Approved",
+      "Status": "Active"
+    },
+    "primaryKey": {
+      "ID": "79C7406B-08C9-4CEC-8080-895A936B08AF"
+    },
+    "relatedEntities": {
+      "MJ: Action Params": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "RepositoryID",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Optional GitHubRepository ID. When omitted, all tracked repositories (IsTracked = 1) are synchronized via the server's GitHub REST fetcher."
+          },
+          "primaryKey": {
+            "ID": "60B84688-4C3D-4F2A-9514-3E9C86011F45"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "RunInference",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Whether to run planning Field Suggestion inference on newly created or body-updated items (default false)."
+          },
+          "primaryKey": {
+            "ID": "25020841-BE3C-425E-B46E-810E59D1F1C1"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "SourceMode",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Data source mode: 'GitHubREST' (default, governed GitHub REST API via MJ Vault), 'ConnectorMirror' (reads local issues/pull_requests mirrored by @memberjunction/connector-github), or 'Auto' (prefers active ConnectorMirror entity maps when configured, otherwise GitHubREST)."
+          },
+          "primaryKey": {
+            "ID": "9C920B25-30E2-4486-AACA-57C9EFB0D743"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "CredentialID",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Optional MJ: Credentials ID ('GitHub App' or 'GitHub Personal Access Token') to authenticate REST sync requests."
+          },
+          "primaryKey": {
+            "ID": "069C5760-02EC-43B2-9D61-B3B3C2C1A54E"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "CompanyID",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Optional MJ: Companies ID scoping CompanyIntegration credential and ConnectorMirror entity-map resolution."
+          },
+          "primaryKey": {
+            "ID": "F95FD0FB-B326-4C6E-87C6-D85A9AAF3523"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "SummaryJSON",
+            "Type": "Output",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "JSON summary with counts of imported, updated, skipped, and inferred items."
+          },
+          "primaryKey": {
+            "ID": "061B3489-7C34-4A27-AF45-FD41836D0DA9"
+          }
+        }
+      ],
+      "MJ: Action Result Codes": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "SUCCESS",
+            "IsSuccess": true,
+            "Description": "Synchronization completed successfully."
+          },
+          "primaryKey": {
+            "ID": "7821AA2C-D94E-4A6C-8C46-72EC0683BE4F"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "NOT_FOUND",
+            "IsSuccess": false,
+            "Description": "The requested RepositoryID was not found."
+          },
+          "primaryKey": {
+            "ID": "9DA9DED1-5885-4C5D-B998-2A88D6569D6B"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "VALIDATION_ERROR",
+            "IsSuccess": false,
+            "Description": "Invalid input parameters."
+          },
+          "primaryKey": {
+            "ID": "5AA479A7-8232-4F3D-A2DF-3F4FDB810C80"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "FAILED",
+            "IsSuccess": false,
+            "Description": "Unexpected synchronization error."
+          },
+          "primaryKey": {
+            "ID": "84D9A363-BF42-461F-A004-D67C2F0A61DB"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "fields": {
+      "Name": "Handle GitHub Tasks Webhook",
+      "CategoryID": "@lookup:MJ: Action Categories.Name=Tasks GitHub",
+      "Description": "Verifies GitHub X-Hub-Signature-256 HMAC-SHA256 signatures and immediately synchronizes the single affected issue or pull request for issues, pull_request, pull_request_review, check_suite, and check_run events.",
+      "Type": "Custom",
+      "DriverClass": "TasksGitHub.HandleWebhook",
+      "IconClass": "fa-solid fa-satellite-dish",
+      "UserPrompt": "Process a signed GitHub webhook delivery for Tasks.",
+      "CodeApprovalStatus": "Approved",
+      "Status": "Active"
+    },
+    "primaryKey": {
+      "ID": "0425697D-175C-4CD2-9036-A9030E65417D"
+    },
+    "relatedEntities": {
+      "MJ: Action Params": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "EventName",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": true,
+            "Description": "X-GitHub-Event header value (issues, pull_request, pull_request_review, check_suite, check_run)."
+          },
+          "primaryKey": {
+            "ID": "9A816833-0053-4ECE-8699-60D132EF31DE"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "DeliveryID",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "X-GitHub-Delivery unique UUID."
+          },
+          "primaryKey": {
+            "ID": "31FC870B-ED02-41CA-B720-D27DEEE57E42"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "SignatureHeader",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": true,
+            "Description": "X-Hub-Signature-256 header value (sha256=<hex>)."
+          },
+          "primaryKey": {
+            "ID": "E049007A-BA3C-4083-A22A-F312C892820F"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "RawPayload",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": true,
+            "Description": "Unmodified UTF-8 JSON body of the webhook delivery."
+          },
+          "primaryKey": {
+            "ID": "D840B122-74E5-4284-AA6B-0389401C7399"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "TaskID",
+            "Type": "Output",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "ID of the synchronized Task when imported or updated."
+          },
+          "primaryKey": {
+            "ID": "022690AF-F0DC-49B1-80FF-B873D2EB2425"
+          }
+        }
+      ],
+      "MJ: Action Result Codes": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "SUCCESS",
+            "IsSuccess": true,
+            "Description": "Webhook verified and item synchronized."
+          },
+          "primaryKey": {
+            "ID": "0B502812-B227-44AD-B22D-B4C542D5F307"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "IGNORED",
+            "IsSuccess": true,
+            "Description": "Webhook verified; event or repository is untracked or filtered out by ImportRule."
+          },
+          "primaryKey": {
+            "ID": "FE97F79A-D103-485D-99DC-AECF52E433A9"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "INVALID_SIGNATURE",
+            "IsSuccess": false,
+            "Description": "Webhook HMAC-SHA256 verification failed."
+          },
+          "primaryKey": {
+            "ID": "043078D7-E57D-46EE-BDB9-3E1D7900706A"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "VALIDATION_ERROR",
+            "IsSuccess": false,
+            "Description": "Missing required webhook parameters or malformed JSON."
+          },
+          "primaryKey": {
+            "ID": "662DE732-A8C9-4B7E-831D-70506261BFFB"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "FAILED",
+            "IsSuccess": false,
+            "Description": "Unexpected webhook processing failure."
+          },
+          "primaryKey": {
+            "ID": "4A0BB39B-8983-4EDE-AAAF-8C8548C8B36E"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "fields": {
+      "Name": "Infer GitHub Task Planning Fields",
+      "CategoryID": "@lookup:MJ: Action Categories.Name=Tasks GitHub",
+      "Description": "Runs planning-field inference on a GitHub Issue or Pull Request Task, proposing MJ: Field Suggestions strictly for Tasks-owned fields (DueAt, HoursEstimated, ParentID, Priority, CategoryID) without ever overwriting GitHub-owned or structured fields.",
+      "Type": "Custom",
+      "DriverClass": "TasksGitHub.InferTaskFields",
+      "IconClass": "fa-solid fa-wand-magic-sparkles",
+      "UserPrompt": "Infer planning Field Suggestions for a GitHub task.",
+      "CodeApprovalStatus": "Approved",
+      "Status": "Active"
+    },
+    "primaryKey": {
+      "ID": "FF789162-F980-4905-934D-48C1D2B53AE0"
+    },
+    "relatedEntities": {
+      "MJ: Action Params": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "TaskID",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": true,
+            "Description": "ID of the GITHUB_ISSUE or GITHUB_PR Task."
+          },
+          "primaryKey": {
+            "ID": "04724F37-70A7-4D2E-B885-F46A5497DAA4"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "SuggestionsCount",
+            "Type": "Output",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Number of MJ: Field Suggestions created."
+          },
+          "primaryKey": {
+            "ID": "191D9256-121E-4C81-A0D9-496B4F300115"
+          }
+        }
+      ],
+      "MJ: Action Result Codes": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "SUCCESS",
+            "IsSuccess": true,
+            "Description": "Inference completed and Field Suggestions created."
+          },
+          "primaryKey": {
+            "ID": "FD45708A-7AB3-4B8C-AE19-80A3BEB4D330"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "SKIPPED",
+            "IsSuccess": true,
+            "Description": "No eligible Tasks-owned planning suggestions to propose."
+          },
+          "primaryKey": {
+            "ID": "8234777C-6E03-40BD-B281-557B3913D9E2"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "NOT_FOUND",
+            "IsSuccess": false,
+            "Description": "Task was not found."
+          },
+          "primaryKey": {
+            "ID": "B893B173-9E28-42D9-869C-F939F98DCC7B"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "FAILED",
+            "IsSuccess": false,
+            "Description": "Inference failed."
+          },
+          "primaryKey": {
+            "ID": "CF051A97-A0CC-4FE5-B7E7-BB0F51C8D0A7"
+          }
+        }
+      ]
+    }
+  }
+]

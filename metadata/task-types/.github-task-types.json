@@ -1,0 +1,259 @@
+[
+  {
+    "fields": {
+      "Name": "GitHub Issue",
+      "Code": "GITHUB_ISSUE",
+      "Description": "Issue synchronized from a tracked GitHub repository. Title, body, state, assignees, labels, and milestone pull from GitHub; priority, due date, estimate, category, and parent objective stay owned by BizApps Tasks.",
+      "IconClass": "fa-solid fa-circle-dot",
+      "DefaultPriority": "Medium",
+      "IsApproval": false,
+      "ExtensionEntity": "MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks"
+    },
+    "primaryKey": {
+      "ID": "A1D17128-D2BF-4C18-905C-6422B58E6AC1"
+    },
+    "relatedEntities": {
+      "MJ_BizApps_Tasks: Task Type Status": [
+        {
+          "fields": {
+            "TaskTypeID": "@parent:ID",
+            "Name": "Open",
+            "Code": "OPEN",
+            "Description": "Issue is open on GitHub and awaiting triage or work.",
+            "MacroStatus": "Open",
+            "Sequence": 10,
+            "IsDefault": true,
+            "IsTerminal": false,
+            "IconClass": "fa-solid fa-circle-dot",
+            "IsActive": true
+          },
+          "primaryKey": {
+            "ID": "2CB403FB-5217-4E65-AFC2-78A2127D7BDA"
+          }
+        },
+        {
+          "fields": {
+            "TaskTypeID": "@parent:ID",
+            "Name": "In Progress",
+            "Code": "IN_PROGRESS",
+            "Description": "Issue is open with active assignee or linked pull request work.",
+            "MacroStatus": "InProgress",
+            "Sequence": 20,
+            "IsDefault": false,
+            "IsTerminal": false,
+            "IconClass": "fa-solid fa-spinner",
+            "IsActive": true
+          },
+          "primaryKey": {
+            "ID": "13B5E78F-D4A0-4BC9-8F19-C37BCBDBE811"
+          }
+        },
+        {
+          "fields": {
+            "TaskTypeID": "@parent:ID",
+            "Name": "Ready for factory",
+            "Code": "READY_FOR_FACTORY",
+            "Description": "Assigned human marked this issue ready for the Software Factory pipeline.",
+            "MacroStatus": "Open",
+            "Sequence": 30,
+            "IsDefault": false,
+            "IsTerminal": false,
+            "IconClass": "fa-solid fa-industry",
+            "IsActive": true
+          },
+          "primaryKey": {
+            "ID": "C308BC86-C335-4614-B78E-CE7654CA143D"
+          }
+        },
+        {
+          "fields": {
+            "TaskTypeID": "@parent:ID",
+            "Name": "Completed",
+            "Code": "COMPLETED",
+            "Description": "Issue was closed as completed on GitHub.",
+            "MacroStatus": "Completed",
+            "Sequence": 80,
+            "IsDefault": false,
+            "IsTerminal": true,
+            "IconClass": "fa-solid fa-circle-check",
+            "IsActive": true
+          },
+          "primaryKey": {
+            "ID": "2CFDFD0E-176C-4304-8BAD-CAAF6D25A3D8"
+          }
+        },
+        {
+          "fields": {
+            "TaskTypeID": "@parent:ID",
+            "Name": "Not Planned",
+            "Code": "NOT_PLANNED",
+            "Description": "Issue was closed as not_planned or duplicate on GitHub.",
+            "MacroStatus": "Cancelled",
+            "Sequence": 90,
+            "IsDefault": false,
+            "IsTerminal": true,
+            "IconClass": "fa-solid fa-ban",
+            "IsActive": true
+          },
+          "primaryKey": {
+            "ID": "31DD4B5E-46E2-44B8-8CDF-EE4908F734A7"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "fields": {
+      "Name": "GitHub Pull Request",
+      "Code": "GITHUB_PR",
+      "Description": "Pull request synchronized from a tracked GitHub repository. Tracks draft status, branches, head SHA, review decisions, CI check state, diff metrics, and merge timestamps.",
+      "IconClass": "fa-solid fa-code-pull-request",
+      "DefaultPriority": "High",
+      "IsApproval": false,
+      "ExtensionEntity": "MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks"
+    },
+    "primaryKey": {
+      "ID": "A7390C71-90B3-482D-8304-3C61C1E39605"
+    },
+    "relatedEntities": {
+      "MJ_BizApps_Tasks: Task Type Status": [
+        {
+          "fields": {
+            "TaskTypeID": "@parent:ID",
+            "Name": "Draft",
+            "Code": "DRAFT",
+            "Description": "Pull request is open in Draft mode on GitHub.",
+            "MacroStatus": "InProgress",
+            "Sequence": 10,
+            "IsDefault": false,
+            "IsTerminal": false,
+            "IconClass": "fa-solid fa-pencil",
+            "IsActive": true
+          },
+          "primaryKey": {
+            "ID": "9B867CEF-0AAB-4CE4-9066-20222D47288D"
+          }
+        },
+        {
+          "fields": {
+            "TaskTypeID": "@parent:ID",
+            "Name": "Open",
+            "Code": "OPEN",
+            "Description": "Pull request is open and ready for review.",
+            "MacroStatus": "Open",
+            "Sequence": 20,
+            "IsDefault": true,
+            "IsTerminal": false,
+            "IconClass": "fa-solid fa-code-pull-request",
+            "IsActive": true
+          },
+          "primaryKey": {
+            "ID": "E97F643F-129A-403D-9DED-C91CB68DE098"
+          }
+        },
+        {
+          "fields": {
+            "TaskTypeID": "@parent:ID",
+            "Name": "Review Required",
+            "Code": "REVIEW_REQUIRED",
+            "Description": "Pull request requires reviewer sign-off.",
+            "MacroStatus": "InProgress",
+            "Sequence": 30,
+            "IsDefault": false,
+            "IsTerminal": false,
+            "IconClass": "fa-solid fa-eye",
+            "IsActive": true
+          },
+          "primaryKey": {
+            "ID": "C1C7F078-8EEC-4769-8712-E264999B8818"
+          }
+        },
+        {
+          "fields": {
+            "TaskTypeID": "@parent:ID",
+            "Name": "Changes Requested",
+            "Code": "CHANGES_REQUESTED",
+            "Description": "A reviewer requested changes on the pull request.",
+            "MacroStatus": "Blocked",
+            "Sequence": 40,
+            "IsDefault": false,
+            "IsTerminal": false,
+            "IconClass": "fa-solid fa-triangle-exclamation",
+            "IsActive": true
+          },
+          "primaryKey": {
+            "ID": "7CA28F79-0C6C-4781-BA81-77651BE6F65A"
+          }
+        },
+        {
+          "fields": {
+            "TaskTypeID": "@parent:ID",
+            "Name": "Approved",
+            "Code": "APPROVED",
+            "Description": "Pull request has been approved and awaits merge.",
+            "MacroStatus": "InProgress",
+            "Sequence": 50,
+            "IsDefault": false,
+            "IsTerminal": false,
+            "IconClass": "fa-solid fa-check-double",
+            "IsActive": true
+          },
+          "primaryKey": {
+            "ID": "F331B5F5-B798-4567-8294-02A8F1F6B1E9"
+          }
+        },
+        {
+          "fields": {
+            "TaskTypeID": "@parent:ID",
+            "Name": "Ready for factory",
+            "Code": "READY_FOR_FACTORY",
+            "Description": "Assigned human marked this pull request ready for the Software Factory pipeline.",
+            "MacroStatus": "InProgress",
+            "Sequence": 55,
+            "IsDefault": false,
+            "IsTerminal": false,
+            "IconClass": "fa-solid fa-industry",
+            "IsActive": true
+          },
+          "primaryKey": {
+            "ID": "F5F54F95-49A9-4294-978F-A7EB64657EA3"
+          }
+        },
+        {
+          "fields": {
+            "TaskTypeID": "@parent:ID",
+            "Name": "Merged",
+            "Code": "MERGED",
+            "Description": "Pull request was merged into its target branch on GitHub.",
+            "MacroStatus": "Completed",
+            "Sequence": 80,
+            "IsDefault": false,
+            "IsTerminal": true,
+            "IconClass": "fa-solid fa-code-merge",
+            "IsActive": true
+          },
+          "primaryKey": {
+            "ID": "80CC4643-3EC2-437C-A525-DC92BF944471"
+          }
+        },
+        {
+          "fields": {
+            "TaskTypeID": "@parent:ID",
+            "Name": "Closed",
+            "Code": "CLOSED",
+            "Description": "Pull request was closed without merging.",
+            "MacroStatus": "Cancelled",
+            "Sequence": 90,
+            "IsDefault": false,
+            "IsTerminal": true,
+            "IconClass": "fa-solid fa-xmark",
+            "IsActive": true
+          },
+          "primaryKey": {
+            "ID": "2D345E51-16D2-47C3-ABD7-C32A233CE55F"
+          }
+        }
+      ]
+    }
+  }
+]

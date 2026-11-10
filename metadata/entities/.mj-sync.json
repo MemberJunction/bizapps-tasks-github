@@ -1,0 +1,10 @@
+{
+  "entity": "MJ: Entities",
+  "filePattern": "**/.*.json",
+  "relatedEntities": {
+    "MJ: Entity Permissions": {
+      "entity": "MJ: Entity Permissions",
+      "foreignKey": "EntityID"
+    }
+  }
+}

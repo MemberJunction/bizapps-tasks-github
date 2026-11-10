@@ -1,0 +1,24 @@
+[
+  {
+    "fields": {
+      "Name": "GitHub Task Planning Field Inference",
+      "Description": "Reads untrusted GitHub Issue or Pull Request title and body text and proposes MJ: Field Suggestions strictly for Tasks-owned planning fields (DueAt, HoursEstimated, ParentID objective rollup, Priority, CategoryID, and unstructured @mentions).",
+      "TypeID": "@lookup:MJ: AI Prompt Types.Name=Chat",
+      "TemplateText": "@file:templates/github-task-inference.template.md",
+      "Status": "Active",
+      "ResponseFormat": "JSON",
+      "SelectionStrategy": "Default",
+      "PowerPreference": "Balanced",
+      "ParallelizationMode": "None",
+      "MaxRetries": 2,
+      "RetryDelayMS": 1000,
+      "RetryStrategy": "Fixed",
+      "PromptRole": "System",
+      "PromptPosition": "First",
+      "CategoryID": "@lookup:MJ: AI Prompt Categories.Name=MJ: System"
+    },
+    "primaryKey": {
+      "ID": "AA901C7D-4870-4932-AFF0-B5FDE139B62D"
+    }
+  }
+]
