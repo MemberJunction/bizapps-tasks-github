@@ -1,0 +1,178 @@
+:host {
+    display: block;
+}
+
+.gh-badge-loading,
+.gh-badge-error {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: var(--mj-radius-md, 8px);
+    font-size: var(--mj-text-xs, 0.75rem);
+}
+
+.gh-badge-loading {
+    color: var(--mj-text-secondary, #475569);
+    background: var(--mj-bg-surface-sunken, #f8fafc);
+}
+
+.gh-badge-error {
+    color: var(--mj-status-error-text, #991b1b);
+    background: var(--mj-status-error-bg, #fef2f2);
+    border: 1px solid var(--mj-status-error-border, #fecaca);
+}
+
+.gh-badge-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--mj-bg-surface-card, #ffffff);
+    border: 1px solid var(--mj-border-default, #e2e8f0);
+    border-radius: var(--mj-radius-md, 8px);
+}
+
+.gh-badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.gh-badge-kind {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--mj-text-sm, 0.875rem);
+    color: var(--mj-text-primary, #0f172a);
+}
+
+.gh-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: var(--mj-radius-full, 9999px);
+    font-size: var(--mj-text-xs, 0.75rem);
+    font-weight: 600;
+    background: var(--mj-bg-surface-sunken, #f1f5f9);
+    color: var(--mj-text-secondary, #334155);
+    border: 1px solid var(--mj-border-subtle, #e2e8f0);
+}
+
+.gh-chip-open,
+.gh-chip-success {
+    color: var(--mj-status-success-text, #166534);
+    background: var(--mj-status-success-bg, #dcfce7);
+    border-color: var(--mj-status-success-border, #bbf7d0);
+}
+
+.gh-chip-merged {
+    color: var(--mj-brand-primary, #5b21b6);
+    background: color-mix(in srgb, var(--mj-brand-primary, #6d28d9) 12%, var(--mj-bg-surface, #ffffff));
+    border-color: color-mix(in srgb, var(--mj-brand-primary, #6d28d9) 28%, var(--mj-border-default, #e2e8f0));
+}
+
+.gh-chip-draft,
+.gh-chip-neutral {
+    color: var(--mj-text-secondary, #475569);
+    background: var(--mj-bg-surface-sunken, #f1f5f9);
+    border-color: var(--mj-border-default, #cbd5e1);
+}
+
+.gh-chip-closed,
+.gh-chip-danger {
+    color: var(--mj-status-error-text, #991b1b);
+    background: var(--mj-status-error-bg, #fee2e2);
+    border-color: var(--mj-status-error-border, #fecaca);
+}
+
+.gh-chip-warning {
+    color: var(--mj-status-warning-text, #92400e);
+    background: var(--mj-status-warning-bg, #fef3c7);
+    border-color: var(--mj-status-warning-border, #fde68a);
+}
+
+.gh-chip-branch code {
+    font-family: var(--mj-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: var(--mj-text-xs, 0.75rem);
+    font-weight: 500;
+}
+
+.gh-diff-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: var(--mj-radius-sm, 6px);
+    background: var(--mj-bg-surface-sunken, #f8fafc);
+    border: 1px solid var(--mj-border-subtle, #e2e8f0);
+    font-family: var(--mj-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: var(--mj-text-xs, 0.75rem);
+    font-weight: 600;
+}
+
+.gh-diff-add {
+    color: var(--mj-status-success, #15803d);
+}
+
+.gh-diff-sep,
+.gh-diff-files {
+    color: var(--mj-text-muted, #64748b);
+    font-weight: 400;
+}
+
+.gh-diff-del {
+    color: var(--mj-status-error, #b91c1c);
+}
+
+.gh-external-link {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: var(--mj-text-xs, 0.75rem);
+    font-weight: 600;
+    color: var(--mj-brand-primary, #2563eb);
+    text-decoration: none;
+}
+
+.gh-external-link:hover {
+    text-decoration: underline;
+}
+
+.gh-badge-labels {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.gh-milestone-tag,
+.gh-label-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: var(--mj-radius-sm, 6px);
+    font-size: var(--mj-text-xs, 0.75rem);
+    background: var(--mj-bg-surface-hover, #f1f5f9);
+    color: var(--mj-text-secondary, #334155);
+}
+
+.gh-ownership-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--mj-border-subtle, #f1f5f9);
+    font-size: var(--mj-text-xs, 0.75rem);
+    color: var(--mj-text-muted, #64748b);
+    line-height: 1.4;
+}
+
+.gh-ownership-banner i {
+    margin-top: 2px;
+    color: var(--mj-text-secondary, #475569);
+}

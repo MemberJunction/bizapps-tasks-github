@@ -2,6 +2,10 @@
 -- Retires runtime & metadata rows written into shared schemas (__mj and __mj_bizappstasks)
 -- in full foreign-key dependency order before __mj_bizappstasksgithub is dropped.
 
+-- 0. Retire Tasks application NavItem settings contributed by bizapps-tasks-github
+DELETE FROM ${mjSchema}."ApplicationSetting"
+ WHERE "Name" LIKE 'NavItem.bizapps-tasks-github.%';
+
 -- 1. Retire "GitHub Tasks & Pull Requests" skill and grants
 UPDATE ${mjSchema}."SearchExecutionLog"
    SET "AISkillID" = NULL

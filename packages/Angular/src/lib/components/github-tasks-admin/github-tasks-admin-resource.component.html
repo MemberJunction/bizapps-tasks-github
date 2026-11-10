@@ -1,0 +1,411 @@
+<mj-page-layout>
+    <mj-page-header
+        Title="GitHub Sync"
+        Icon="fa-brands fa-github"
+        Subtitle="Manage tracked GitHub repositories, Connector Mirror vs REST sync sources, self-service identity mapping, and webhook status">
+        <div meta>
+            <mj-stat-badge
+                [Count]="TrackedRepositoryCount"
+                [Total]="RepositoryCards.length"
+                Label="tracked repos" />
+            <mj-stat-badge
+                [Count]="ConnectorMirrorCount"
+                Label="connector mirrors"
+                Variant="info" />
+            <mj-stat-badge
+                [Label]="IdentityViewModel.LinkStatus === 'Linked' && IdentityViewModel.GitHubLogin
+                    ? '@' + IdentityViewModel.GitHubLogin
+                    : 'Identity ' + IdentityViewModel.LinkStatus"
+                [Variant]="IdentityViewModel.LinkStatus === 'Linked' ? 'success' : 'warning'" />
+        </div>
+
+        <div actions>
+            <mj-refresh-button [Loading]="IsLoading" (Clicked)="LoadData()" />
+            <button
+                mjButton
+                Variant="primary"
+                Size="sm"
+                type="button"
+                [disabled]="IsSyncingAll || TrackedRepositoryCount === 0"
+                (click)="TriggerRepositorySync()">
+                <i
+                    class="fa-solid fa-arrows-rotate"
+                    [class.fa-spin]="IsSyncingAll"
+                    aria-hidden="true"></i>
+                {{ IsSyncingAll ? 'Syncing…' : 'Sync Tracked Repos' }}
+            </button>
+        </div>
+
+        <div toolbar>
+            <div
+                class="gh-admin-tabs"
+                role="tablist"
+                aria-label="GitHub Sync console sections"
+                (keydown)="OnTabKeydown($event)">
+                <button
+                    id="gh-admin-tab-repositories"
+                    type="button"
+                    role="tab"
+                    class="gh-admin-tab-btn"
+                    [class.active]="ActiveTab === 'repositories'"
+                    [attr.aria-selected]="ActiveTab === 'repositories'"
+                    [attr.tabindex]="ActiveTab === 'repositories' ? 0 : -1"
+                    aria-controls="gh-admin-panel-repositories"
+                    (click)="SwitchTab('repositories')">
+                    <i class="fa-solid fa-book-bookmark" aria-hidden="true"></i>
+                    Repositories
+                    <span class="gh-admin-tab-count">{{ RepositoryCards.length }}</span>
+                </button>
+                <button
+                    id="gh-admin-tab-identity"
+                    type="button"
+                    role="tab"
+                    class="gh-admin-tab-btn"
+                    [class.active]="ActiveTab === 'identity'"
+                    [attr.aria-selected]="ActiveTab === 'identity'"
+                    [attr.tabindex]="ActiveTab === 'identity' ? 0 : -1"
+                    aria-controls="gh-admin-panel-identity"
+                    (click)="SwitchTab('identity')">
+                    <i class="fa-solid fa-id-badge" aria-hidden="true"></i>
+                    My GitHub Identity
+                </button>
+                <button
+                    id="gh-admin-tab-webhooks"
+                    type="button"
+                    role="tab"
+                    class="gh-admin-tab-btn"
+                    [class.active]="ActiveTab === 'webhooks'"
+                    [attr.aria-selected]="ActiveTab === 'webhooks'"
+                    [attr.tabindex]="ActiveTab === 'webhooks' ? 0 : -1"
+                    aria-controls="gh-admin-panel-webhooks"
+                    (click)="SwitchTab('webhooks')">
+                    <i class="fa-solid fa-satellite-dish" aria-hidden="true"></i>
+                    Webhooks
+                    @if (WebhookDeliveries.length > 0) {
+                        <span class="gh-admin-tab-count">{{ WebhookDeliveries.length }}</span>
+                    }
+                </button>
+            </div>
+
+            @if (ActiveTab === 'repositories') {
+                <mj-page-search
+                    AriaLabel="Search GitHub repositories"
+                    Placeholder="Search owner/repo, branch, or sync source…"
+                    [Value]="SearchQuery"
+                    (ValueChange)="OnSearchChange($event)" />
+                <div class="gh-admin-filter-chips" role="group" aria-label="Filter repositories by tracking status">
+                    @for (opt of TrackingFilterOptions; track opt.Value) {
+                        <mj-filter-chip
+                            [Label]="opt.Label"
+                            [Active]="TrackingFilter === opt.Value"
+                            (Clicked)="OnTrackingFilterChange(opt.Value)" />
+                    }
+                </div>
+            }
+        </div>
+    </mj-page-header>
+
+    <mj-page-body>
+        @if (Banner) {
+            <div
+                class="gh-admin-banner"
+                [class.gh-admin-banner-error]="Banner.Type === 'error'"
+                [class.gh-admin-banner-success]="Banner.Type === 'success'"
+                [class.gh-admin-banner-info]="Banner.Type === 'info'"
+                [attr.role]="Banner.Type === 'error' ? 'alert' : 'status'"
+                aria-live="polite">
+                <span>{{ Banner.Message }}</span>
+                <button
+                    type="button"
+                    class="gh-admin-banner-close"
+                    aria-label="Dismiss message"
+                    (click)="Banner = null">
+                    <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                </button>
+            </div>
+        }
+
+        @if (IsLoading && RepositoryCards.length === 0) {
+            <mj-loading text="Loading GitHub Sync console…"></mj-loading>
+        } @else {
+            @switch (ActiveTab) {
+                @case ('repositories') {
+                    <section
+                        id="gh-admin-panel-repositories"
+                        role="tabpanel"
+                        aria-labelledby="gh-admin-tab-repositories"
+                        class="gh-admin-section">
+                        @if (RepositoryCards.length === 0) {
+                            <mj-empty-state
+                                Icon="fa-brands fa-github"
+                                Title="No GitHub Repositories Registered"
+                                Message="Add MJ_BizApps_Tasks_GitHub: Git Hub Repositories records to begin importing issues and pull requests into BizApps Tasks." />
+                        } @else if (FilteredRepositoryCards.length === 0) {
+                            <mj-empty-state
+                                Variant="no-results"
+                                Title="No Matching Repositories"
+                                Message="Adjust your search query or tracking filter to view registered repositories." />
+                        } @else {
+                            <div class="gh-repo-grid">
+                                @for (card of FilteredRepositoryCards; track card.ID) {
+                                    <article class="gh-repo-card" [class.untracked]="!card.IsTracked">
+                                        <header class="gh-repo-card-header">
+                                            <div class="gh-repo-title-wrap">
+                                                <a
+                                                    class="gh-repo-fullname"
+                                                    [href]="card.GitHubUrl"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer">
+                                                    <i class="fa-brands fa-github" aria-hidden="true"></i>
+                                                    <span>{{ card.FullName }}</span>
+                                                    <i class="fa-solid fa-arrow-up-right-from-square gh-ext-icon" aria-hidden="true"></i>
+                                                </a>
+                                                <span class="gh-branch-pill">
+                                                    <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+                                                    {{ card.DefaultBranch }}
+                                                </span>
+                                            </div>
+
+                                            <span
+                                                class="gh-source-badge"
+                                                [class.mirror]="card.SyncSourceBadge === 'ConnectorMirror'"
+                                                [class.rest]="card.SyncSourceBadge === 'GitHubREST'"
+                                                [title]="card.SyncSourceLabel">
+                                                @if (card.SyncSourceBadge === 'ConnectorMirror') {
+                                                    <i class="fa-solid fa-database" aria-hidden="true"></i>
+                                                    ConnectorMirror
+                                                } @else {
+                                                    <i class="fa-solid fa-cloud-arrow-down" aria-hidden="true"></i>
+                                                    GitHubREST
+                                                }
+                                            </span>
+                                        </header>
+
+                                        <div class="gh-repo-meta-grid">
+                                            <div class="gh-repo-meta-item">
+                                                <span class="gh-meta-label">Last Synced</span>
+                                                <span class="gh-meta-value">{{ card.LastSyncedDisplay }}</span>
+                                            </div>
+                                            @if (card.OrganizationName) {
+                                                <div class="gh-repo-meta-item">
+                                                    <span class="gh-meta-label">Organization</span>
+                                                    <span class="gh-meta-value">{{ card.OrganizationName }}</span>
+                                                </div>
+                                            }
+                                            <div class="gh-repo-meta-item">
+                                                <label class="gh-meta-label" [attr.for]="'gh-import-rule-' + card.ID">
+                                                    Import Rule
+                                                </label>
+                                                <select
+                                                    [id]="'gh-import-rule-' + card.ID"
+                                                    class="gh-select"
+                                                    [ngModel]="card.ImportRule"
+                                                    [disabled]="IsSameRepo(SavingRepositoryID, card.ID)"
+                                                    (ngModelChange)="UpdateRepositoryImportRule(card, $event)">
+                                                    @for (opt of ImportRuleOptions; track opt.Value) {
+                                                        <option [ngValue]="opt.Value">{{ opt.Label }}</option>
+                                                    }
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <footer class="gh-repo-card-footer">
+                                            <button
+                                                mjButton
+                                                [Variant]="card.IsTracked ? 'outline' : 'primary'"
+                                                Size="sm"
+                                                type="button"
+                                                [disabled]="IsSameRepo(SavingRepositoryID, card.ID)"
+                                                (click)="ToggleRepositoryTracking(card)">
+                                                <i
+                                                    [class]="card.IsTracked ? 'fa-solid fa-pause' : 'fa-solid fa-play'"
+                                                    aria-hidden="true"></i>
+                                                {{ card.IsTracked ? 'Pause Tracking' : 'Enable Tracking' }}
+                                            </button>
+
+                                            <button
+                                                mjButton
+                                                Variant="secondary"
+                                                Size="sm"
+                                                type="button"
+                                                [disabled]="!card.IsTracked || IsSyncingAll || IsSameRepo(SyncingRepositoryID, card.ID)"
+                                                (click)="TriggerRepositorySync(card)">
+                                                <i
+                                                    class="fa-solid fa-arrows-rotate"
+                                                    [class.fa-spin]="IsSameRepo(SyncingRepositoryID, card.ID)"
+                                                    aria-hidden="true"></i>
+                                                {{ IsSameRepo(SyncingRepositoryID, card.ID) ? 'Syncing…' : 'Sync Now' }}
+                                            </button>
+                                        </footer>
+                                    </article>
+                                }
+                            </div>
+                        }
+                    </section>
+                }
+
+                @case ('identity') {
+                    <section
+                        id="gh-admin-panel-identity"
+                        role="tabpanel"
+                        aria-labelledby="gh-admin-tab-identity"
+                        class="gh-admin-section">
+                        <div class="gh-identity-card">
+                            <header class="gh-identity-header">
+                                <div>
+                                    <h2 class="gh-card-title">Self-Service GitHub Identity Mapping</h2>
+                                    <p class="gh-card-subtitle">{{ IdentityViewModel.StatusSummary }}</p>
+                                </div>
+                                <span
+                                    class="gh-status-pill"
+                                    [class.linked]="IdentityViewModel.LinkStatus === 'Linked'"
+                                    [class.unlinked]="IdentityViewModel.LinkStatus === 'Unlinked'"
+                                    [class.missing]="IdentityViewModel.LinkStatus === 'PersonNotFound'">
+                                    {{ IdentityViewModel.LinkStatus }}
+                                </span>
+                            </header>
+
+                            <dl class="gh-identity-details">
+                                <div>
+                                    <dt>Signed-in User</dt>
+                                    <dd>{{ IdentityViewModel.UserDisplayName }} ({{ IdentityViewModel.UserEmail || 'no email' }})</dd>
+                                </div>
+                                <div>
+                                    <dt>BizApps Person Record</dt>
+                                    <dd>{{ IdentityViewModel.PersonDisplayName || 'Not linked' }}</dd>
+                                </div>
+                                <div>
+                                    <dt>MJ Vault / OAuth Credential Mode</dt>
+                                    <dd>
+                                        <span
+                                            class="gh-vault-badge"
+                                            [class.oauth]="IdentityViewModel.VaultAuthStatus === 'OAuth3LO'">
+                                            <i
+                                                [class]="IdentityViewModel.VaultAuthStatus === 'OAuth3LO'
+                                                    ? 'fa-solid fa-shield-halved'
+                                                    : 'fa-solid fa-key'"
+                                                aria-hidden="true"></i>
+                                            {{ IdentityViewModel.VaultAuthLabel }}
+                                        </span>
+                                    </dd>
+                                </div>
+                            </dl>
+
+                            @if (IdentityViewModel.LinkStatus === 'PersonNotFound') {
+                                <mj-empty-state
+                                    Size="compact"
+                                    Variant="warning"
+                                    Icon="fa-solid fa-user-slash"
+                                    Title="Person Record Required"
+                                    Message="Ask an administrator to create or link your MJ_BizApps_Common: People record matching your account email so your GitHub handle can map to Task Assignments." />
+                            } @else {
+                                <form class="gh-identity-form" (submit)="SaveIdentityMapping($event)">
+                                    <div class="gh-field-group">
+                                        <label for="gh-login-input">GitHub Username</label>
+                                        <div class="gh-input-prefix-wrap">
+                                            <span class="gh-input-prefix" aria-hidden="true">@</span>
+                                            <input
+                                                id="gh-login-input"
+                                                name="githubLogin"
+                                                type="text"
+                                                autocomplete="off"
+                                                spellcheck="false"
+                                                placeholder="octocat"
+                                                class="gh-text-input"
+                                                [attr.aria-invalid]="IdentityLoginError ? 'true' : null"
+                                                aria-describedby="gh-login-help gh-login-error"
+                                                [(ngModel)]="IdentityLoginDraft"
+                                                (input)="OnIdentityLoginInput()" />
+                                        </div>
+                                        <p id="gh-login-help" class="gh-field-hint">
+                                            GitHub issues assigned to this username and pull requests requesting your review automatically create Primary and Reviewer TaskAssignment rows.
+                                        </p>
+                                        @if (IdentityLoginError) {
+                                            <p id="gh-login-error" class="gh-field-error" role="alert">
+                                                {{ IdentityLoginError }}
+                                            </p>
+                                        }
+                                    </div>
+
+                                    <div class="gh-form-actions">
+                                        <button
+                                            mjButton
+                                            Variant="primary"
+                                            type="submit"
+                                            [disabled]="IsSavingIdentity">
+                                            <i class="fa-solid fa-check" aria-hidden="true"></i>
+                                            {{ IsSavingIdentity ? 'Saving…' : 'Save GitHub Username' }}
+                                        </button>
+                                        <button
+                                            mjButton
+                                            Variant="outline"
+                                            type="button"
+                                            [disabled]="IsSavingIdentity"
+                                            (click)="ResetIdentityDraft()">
+                                            Reset
+                                        </button>
+                                    </div>
+                                </form>
+                            }
+                        </div>
+                    </section>
+                }
+
+                @case ('webhooks') {
+                    <section
+                        id="gh-admin-panel-webhooks"
+                        role="tabpanel"
+                        aria-labelledby="gh-admin-tab-webhooks"
+                        class="gh-admin-section">
+                        <div class="gh-webhook-callout">
+                            <div>
+                                <h2 class="gh-card-title">Webhook Delivery &amp; Pilot Endpoint Status</h2>
+                                <p class="gh-card-subtitle">
+                                    Mount <code>MountGitHubWebhookEndpoint(app)</code> on MJAPI to expose
+                                    <code>POST /webhooks/github</code> and <code>GET /webhooks/github/health</code> with
+                                    raw UTF-8 HMAC-SHA256 verification.
+                                </p>
+                            </div>
+                        </div>
+
+                        @if (WebhookDeliveries.length === 0) {
+                            <mj-empty-state
+                                Icon="fa-solid fa-satellite-dish"
+                                Title="No Recent Webhook Deliveries Recorded"
+                                Message="Incoming GitHub issues, pull_request, pull_request_review, check_suite, and check_run webhook events will appear here once delivered." />
+                        } @else {
+                            <div class="gh-webhook-table-wrap">
+                                <table class="gh-webhook-table">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Delivery</th>
+                                            <th scope="col">Event</th>
+                                            <th scope="col">Repository</th>
+                                            <th scope="col">Status</th>
+                                            <th scope="col">Received</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @for (row of WebhookDeliveries; track row.ID) {
+                                            <tr>
+                                                <td><code>{{ row.DeliveryID }}</code></td>
+                                                <td>{{ row.EventName }}</td>
+                                                <td>{{ row.RepositoryFullName || '—' }}</td>
+                                                <td>
+                                                    <span [class]="'gh-delivery-status tone-' + row.StatusTone">
+                                                        {{ row.StatusLabel }}
+                                                    </span>
+                                                </td>
+                                                <td>{{ row.ReceivedAtDisplay }}</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </section>
+                }
+            }
+        }
+    </mj-page-body>
+</mj-page-layout>

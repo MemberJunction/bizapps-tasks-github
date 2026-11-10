@@ -1,0 +1,66 @@
+{
+  "name": "@mj-biz-apps/tasks-github-ng",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "BizApps Tasks GitHub Extension Angular UI - repository & connector mirror console, self-service GitHub identity mapping, webhook status, and task detail badges",
+  "main": "dist/public-api.js",
+  "types": "dist/public-api.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "/dist"
+  ],
+  "scripts": {
+    "build": "ngc",
+    "test": "vitest run"
+  },
+  "author": "MemberJunction.com",
+  "license": "BUSL-1.1",
+  "dependencies": {
+    "@mj-biz-apps/tasks-github-entities": "^1.0.0",
+    "rxjs": "^7.8.2"
+  },
+  "peerDependencies": {
+    "@angular/animations": "^21.1.3",
+    "@angular/common": "^21.1.3",
+    "@angular/core": "^21.1.3",
+    "@angular/forms": "^21.1.3",
+    "@memberjunction/core": "^6.2.1",
+    "@memberjunction/core-entities": "^6.2.1",
+    "@memberjunction/global": "^6.2.1",
+    "@memberjunction/graphql-dataprovider": "^6.2.1",
+    "@memberjunction/ng-base-forms": "^6.2.1",
+    "@memberjunction/ng-base-types": "^6.2.1",
+    "@memberjunction/ng-shared": "^6.2.1",
+    "@memberjunction/ng-shared-generic": "^6.2.1",
+    "@memberjunction/ng-ui-components": "^6.2.1",
+    "@mj-biz-apps/common-entities": "^5.62.0",
+    "@mj-biz-apps/tasks-entities": "^1.11.1"
+  },
+  "devDependencies": {
+    "@angular/animations": "21.1.3",
+    "@angular/common": "21.1.3",
+    "@angular/compiler": "21.1.3",
+    "@angular/compiler-cli": "21.1.3",
+    "@angular/core": "21.1.3",
+    "@angular/forms": "21.1.3",
+    "@memberjunction/core": "6.2.1",
+    "@memberjunction/core-entities": "6.2.1",
+    "@memberjunction/global": "6.2.1",
+    "@memberjunction/graphql-dataprovider": "6.2.1",
+    "@memberjunction/ng-base-forms": "6.2.1",
+    "@memberjunction/ng-base-types": "6.2.1",
+    "@memberjunction/ng-shared": "6.2.1",
+    "@memberjunction/ng-shared-generic": "6.2.1",
+    "@memberjunction/ng-ui-components": "6.2.1",
+    "@mj-biz-apps/common-entities": "5.62.0",
+    "@mj-biz-apps/tasks-entities": "1.11.1",
+    "typescript": "^5.9.3",
+    "vitest": "1.6.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MemberJunction/bizapps-tasks-github"
+  }
+}

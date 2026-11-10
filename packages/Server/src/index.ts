@@ -10,6 +10,7 @@ import { GitHubTasksWebhookServerExtension } from './webhookMiddleware.js';
 
 export * from './generated/generated.js';
 export * from './webhookMiddleware.js';
+export * from './webhookBootstrap.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
