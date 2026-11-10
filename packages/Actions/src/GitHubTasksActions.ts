@@ -16,7 +16,9 @@ import {
     GitHubTaskInferenceService,
     GitHubTaskSyncService,
     GitHubWebhookService,
+    ResolveGitHubWebhookSecret,
     TASKS_ENTITY_NAME,
+    type GitHubSyncSourceMode,
 } from '@mj-biz-apps/tasks-github-core';
 
 function getStringParam(params: ActionParam[], name: string): string | null {
@@ -85,12 +87,50 @@ export class SyncGitHubRepositoryTasksAction extends BaseAction {
                 };
             }
 
+            const credentialId = getStringParam(params.Params, 'CredentialID');
+            if (credentialId && !IsValidUUID(credentialId)) {
+                return {
+                    Success: false,
+                    ResultCode: 'VALIDATION_ERROR',
+                    Message: `Invalid CredentialID UUID: '${credentialId}'`,
+                };
+            }
+
+            const companyId = getStringParam(params.Params, 'CompanyID');
+            if (companyId && !IsValidUUID(companyId)) {
+                return {
+                    Success: false,
+                    ResultCode: 'VALIDATION_ERROR',
+                    Message: `Invalid CompanyID UUID: '${companyId}'`,
+                };
+            }
+
+            const rawSourceMode = getStringParam(params.Params, 'SourceMode');
+            let sourceMode: GitHubSyncSourceMode = 'GitHubREST';
+            if (rawSourceMode !== null) {
+                if (
+                    rawSourceMode !== 'GitHubREST'
+                    && rawSourceMode !== 'ConnectorMirror'
+                    && rawSourceMode !== 'Auto'
+                ) {
+                    return {
+                        Success: false,
+                        ResultCode: 'VALIDATION_ERROR',
+                        Message: `Invalid SourceMode '${rawSourceMode}'; expected 'GitHubREST', 'ConnectorMirror', or 'Auto'.`,
+                    };
+                }
+                sourceMode = rawSourceMode;
+            }
+
             const runInference = getBooleanParam(params.Params, 'RunInference', false);
             const provider = params.Provider as (IMetadataProvider & IRunViewProvider) | undefined;
 
             const summaries = await GitHubTaskSyncService.Instance.SyncRepositories({
                 repositoryId,
                 runInference,
+                sourceMode,
+                credentialId,
+                companyId,
                 contextUser: params.ContextUser,
                 provider,
             });
@@ -142,8 +182,6 @@ export class HandleGitHubWebhookAction extends BaseAction {
             const signatureHeader = getStringParam(params.Params, 'SignatureHeader');
             const rawPayload = getRawStringParam(params.Params, 'RawPayload');
             const deliveryId = getStringParam(params.Params, 'DeliveryID');
-            // Security: always read the HMAC secret exclusively from server configuration, never from caller params.
-            const webhookSecret = (process.env.GITHUB_WEBHOOK_SECRET ?? '').trim();
 
             if (!eventName || !signatureHeader || !rawPayload) {
                 return {
@@ -154,6 +192,11 @@ export class HandleGitHubWebhookAction extends BaseAction {
             }
 
             const provider = params.Provider as (IMetadataProvider & IRunViewProvider) | undefined;
+            // Security: always read the HMAC secret exclusively from server Vault or environment, never from caller params.
+            const webhookSecret = await ResolveGitHubWebhookSecret({
+                contextUser: params.ContextUser,
+                provider,
+            });
             const res = await GitHubWebhookService.Instance.HandleWebhook({
                 eventName,
                 deliveryId,

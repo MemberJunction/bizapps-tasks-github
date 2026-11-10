@@ -91,6 +91,9 @@ importers:
       '@memberjunction/core-entities':
         specifier: 6.2.1
         version: 6.2.1
+      '@memberjunction/credentials':
+        specifier: 6.2.1
+        version: 6.2.1
       '@memberjunction/global':
         specifier: 6.2.1
         version: 6.2.1

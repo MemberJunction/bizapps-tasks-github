@@ -47,6 +47,48 @@
         {
           "fields": {
             "ActionID": "@parent:ID",
+            "Name": "SourceMode",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Data source mode: 'GitHubREST' (default, governed GitHub REST API via MJ Vault), 'ConnectorMirror' (reads local issues/pull_requests mirrored by @memberjunction/connector-github), or 'Auto' (prefers active ConnectorMirror entity maps when configured, otherwise GitHubREST)."
+          },
+          "primaryKey": {
+            "ID": "9C920B25-30E2-4486-AACA-57C9EFB0D743"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "CredentialID",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Optional MJ: Credentials ID ('GitHub App' or 'GitHub Personal Access Token') to authenticate REST sync requests."
+          },
+          "primaryKey": {
+            "ID": "069C5760-02EC-43B2-9D61-B3B3C2C1A54E"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "CompanyID",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Optional MJ: Companies ID scoping CompanyIntegration credential and ConnectorMirror entity-map resolution."
+          },
+          "primaryKey": {
+            "ID": "F95FD0FB-B326-4C6E-87C6-D85A9AAF3523"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
             "Name": "SummaryJSON",
             "Type": "Output",
             "ValueType": "Scalar",

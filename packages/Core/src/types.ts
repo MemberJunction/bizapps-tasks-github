@@ -96,6 +96,8 @@ export interface NormalizedGitHubPullRequestInput {
 
 export type NormalizedGitHubSyncItem = NormalizedGitHubIssueInput | NormalizedGitHubPullRequestInput;
 
+export type GitHubSyncSourceMode = 'GitHubREST' | 'ConnectorMirror' | 'Auto';
+
 export interface SingleItemSyncResult {
     action: 'created' | 'updated' | 'skipped';
     reason?: string;
@@ -167,6 +169,8 @@ export interface IGitHubLiveStateFetcher {
         owner: string,
         repo: string,
         headSha: string,
+        contextUser?: UserInfo,
+        provider?: IMetadataProvider,
     ): Promise<GitHubPullRequestChecksStatus | null>;
 
     FetchPullRequestReviewDecision(
@@ -174,6 +178,8 @@ export interface IGitHubLiveStateFetcher {
         repo: string,
         pullNumber: number,
         hasRequestedReviewers: boolean,
+        contextUser?: UserInfo,
+        provider?: IMetadataProvider,
     ): Promise<GitHubPullRequestReviewDecision | null | undefined>;
 }
 

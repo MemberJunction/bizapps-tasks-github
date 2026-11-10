@@ -20,12 +20,18 @@ import type {
     mjBizAppsTasksGitHubGitHubPullRequestTaskEntity,
     mjBizAppsTasksGitHubGitHubRepositoryEntity,
 } from '@mj-biz-apps/tasks-github-entities';
+import {
+    ConnectorGitHubMirrorRepositoryFetcher,
+    HasActiveGitHubConnectorMirror,
+} from './ConnectorGitHubMirrorRepositoryFetcher.js';
 import { GitHubFieldOwnershipPolicy } from './GitHubFieldOwnershipPolicy.js';
 import { GitHubTaskInferenceService, TASKS_ENTITY_NAME } from './GitHubTaskInferenceService.js';
+import { ResolveGitHubVaultAuth } from './GitHubVaultAuthResolver.js';
 import { AssertValidUUID } from './sql-safety.js';
 import type {
     GitHubIssueStateReason,
     GitHubPullRequestChecksStatus,
+    GitHubSyncSourceMode,
     IGitHubRepositoryFetcher,
     NormalizedGitHubIssueInput,
     NormalizedGitHubPullRequestInput,
@@ -121,31 +127,75 @@ interface GitHubRestPullRequestJson {
     updated_at?: string | null;
 }
 
+export interface DefaultGitHubRestRepositoryFetcherOptions {
+    credentialId?: string | null;
+    companyId?: string | null;
+    useUserDelegatedAuth?: boolean;
+    fetchImpl?: typeof fetch;
+}
+
+function parseNextLinkUrl(linkHeader: string | null): string | null {
+    if (!linkHeader) {
+        return null;
+    }
+    const segments = linkHeader.split(',');
+    for (const seg of segments) {
+        const relNextMatch = /<([^>]+)>\s*;\s*rel="next"/i.exec(seg);
+        if (relNextMatch && relNextMatch[1]) {
+            return relNextMatch[1].trim();
+        }
+    }
+    return null;
+}
+
 /**
- * Default GitHub REST API fetcher used when `GITHUB_TOKEN` (or `GH_TOKEN`) is configured on the host
- * and no custom `IGitHubRepositoryFetcher` has been registered.
+ * Default GitHub REST API fetcher backed by MemberJunction Vault (`CredentialEngine` + `MJ: Company Integrations`)
+ * with process-wide GitHub App installation token caching, GitHub Enterprise Server `ApiBaseUrl` support,
+ * RFC 5988 `Link` pagination, transient retry backoff, and `GITHUB_APP_*` / `GITHUB_TOKEN` / `GH_TOKEN` fallback.
  */
 export class DefaultGitHubRestRepositoryFetcher implements IGitHubRepositoryFetcher {
     private static readonly MAX_PAGES = 20;
     private static readonly PAGE_SIZE = 100;
     private static readonly REQUEST_TIMEOUT_MS = 10000;
+    private static readonly MAX_RETRIES = 2;
+
+    public constructor(private readonly _options: DefaultGitHubRestRepositoryFetcherOptions = {}) {}
 
     public async FetchRepositoryItems(
         owner: string,
         name: string,
+        contextUser?: UserInfo,
+        provider?: IMetadataProvider,
     ): Promise<NormalizedGitHubSyncItem[]> {
-        const token = (process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? '').trim();
-        if (!token) {
+        const auth = await ResolveGitHubVaultAuth({
+            credentialId: this._options.credentialId,
+            companyId: this._options.companyId,
+            useUserDelegatedAuth: this._options.useUserDelegatedAuth,
+            targetRepository: { owner, repo: name },
+            permissions: {
+                contents: 'read',
+                issues: 'read',
+                pull_requests: 'read',
+                metadata: 'read',
+            },
+            contextUser,
+            provider: provider as (IMetadataProvider & IRunViewProvider) | undefined,
+            fetchImpl: this._options.fetchImpl,
+        });
+
+        if (!auth || !auth.token) {
             throw new Error(
-                `GITHUB_TOKEN (or GH_TOKEN) is not configured; cannot fetch repository items for '${owner}/${name}' without a GitHub token or custom IGitHubRepositoryFetcher.`,
+                `No GitHub credentials configured in MemberJunction Vault, Company Integrations, or environment (GITHUB_APP_* / GITHUB_TOKEN / GH_TOKEN); cannot fetch repository items for '${owner}/${name}'.`,
             );
         }
+
         const headers: Record<string, string> = {
             Accept: 'application/vnd.github+json',
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${auth.token}`,
             'X-GitHub-Api-Version': '2022-11-28',
+            'User-Agent': 'MemberJunction-BizApps-Tasks-GitHub',
         };
-        const baseUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+        const baseUrl = `${auth.apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
         const [rawIssues, rawPulls] = await Promise.all([
             this.fetchPaginated<GitHubRestIssueJson>(`${baseUrl}/issues`, headers, `${owner}/${name} issues`),
             this.fetchPaginated<GitHubRestPullRequestJson>(`${baseUrl}/pulls`, headers, `${owner}/${name} pull requests`),
@@ -233,18 +283,46 @@ export class DefaultGitHubRestRepositoryFetcher implements IGitHubRepositoryFetc
         return normalized;
     }
 
+    private async fetchWithRetry(
+        url: string,
+        headers: Record<string, string>,
+    ): Promise<Response> {
+        const fetchFn = this._options.fetchImpl ?? fetch;
+        let lastResponse: Response | null = null;
+
+        for (let attempt = 0; attempt <= DefaultGitHubRestRepositoryFetcher.MAX_RETRIES; attempt += 1) {
+            const res = await fetchFn(url, {
+                headers,
+                signal: AbortSignal.timeout(DefaultGitHubRestRepositoryFetcher.REQUEST_TIMEOUT_MS),
+            });
+            lastResponse = res;
+            if (
+                res.ok ||
+                (res.status !== 429 && res.status !== 502 && res.status !== 503 && res.status !== 504) ||
+                attempt === DefaultGitHubRestRepositoryFetcher.MAX_RETRIES
+            ) {
+                return res;
+            }
+            const retryAfterSec = Number.parseInt(res.headers.get('retry-after') ?? '', 10);
+            const delayMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0
+                ? Math.min(retryAfterSec * 1000, 2000)
+                : 150 * (attempt + 1);
+            await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+        }
+
+        return lastResponse!;
+    }
+
     private async fetchPaginated<T>(
         endpointUrl: string,
         headers: Record<string, string>,
         label: string,
     ): Promise<T[]> {
         const collected: T[] = [];
-        for (let page = 1; page <= DefaultGitHubRestRepositoryFetcher.MAX_PAGES; page += 1) {
-            const url = `${endpointUrl}?state=all&per_page=${DefaultGitHubRestRepositoryFetcher.PAGE_SIZE}&page=${page}`;
-            const res = await fetch(url, {
-                headers,
-                signal: AbortSignal.timeout(DefaultGitHubRestRepositoryFetcher.REQUEST_TIMEOUT_MS),
-            });
+        let nextUrl: string | null = `${endpointUrl}?state=all&per_page=${DefaultGitHubRestRepositoryFetcher.PAGE_SIZE}&page=1`;
+
+        for (let page = 1; page <= DefaultGitHubRestRepositoryFetcher.MAX_PAGES && nextUrl !== null; page += 1) {
+            const res = await this.fetchWithRetry(nextUrl, headers);
             if (!res.ok) {
                 throw new Error(`GitHub REST API error fetching ${label} (page ${page}): HTTP ${res.status}`);
             }
@@ -253,9 +331,20 @@ export class DefaultGitHubRestRepositoryFetcher implements IGitHubRepositoryFetc
                 break;
             }
             collected.push(...batch);
-            if (batch.length < DefaultGitHubRestRepositoryFetcher.PAGE_SIZE) {
-                break;
+
+            const linkHeader = typeof res.headers?.get === 'function' ? res.headers.get('link') : null;
+            if (linkHeader !== null) {
+                nextUrl = parseNextLinkUrl(linkHeader);
+                if (!nextUrl) {
+                    break;
+                }
+            } else {
+                if (batch.length < DefaultGitHubRestRepositoryFetcher.PAGE_SIZE) {
+                    break;
+                }
+                nextUrl = `${endpointUrl}?state=all&per_page=${DefaultGitHubRestRepositoryFetcher.PAGE_SIZE}&page=${page + 1}`;
             }
+
             if (page === DefaultGitHubRestRepositoryFetcher.MAX_PAGES) {
                 LogError(
                     `[DefaultGitHubRestRepositoryFetcher] Pagination for ${label} reached the ${DefaultGitHubRestRepositoryFetcher.MAX_PAGES}-page cap (${collected.length} items); additional items were truncated.`,
@@ -279,6 +368,9 @@ export interface SyncRepositoryOptions {
     repositoryId?: string | null;
     items?: NormalizedGitHubSyncItem[];
     runInference?: boolean;
+    sourceMode?: GitHubSyncSourceMode;
+    credentialId?: string | null;
+    companyId?: string | null;
     contextUser: UserInfo;
     provider?: IMetadataProvider & IRunViewProvider;
 }
@@ -302,6 +394,33 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
 
     public ClearRepositoryFetcher(): void {
         this._fetcher = null;
+    }
+
+    private async resolveRepositoryFetcher(options: SyncRepositoryOptions): Promise<IGitHubRepositoryFetcher> {
+        const mode = options.sourceMode ?? 'GitHubREST';
+        if (mode === 'ConnectorMirror') {
+            return new ConnectorGitHubMirrorRepositoryFetcher({ companyId: options.companyId });
+        }
+        if (this._fetcher !== null) {
+            return this._fetcher;
+        }
+        if (mode === 'Auto') {
+            const hasMirror = await HasActiveGitHubConnectorMirror(
+                options.contextUser,
+                options.provider,
+                options.companyId,
+            );
+            if (hasMirror) {
+                return new ConnectorGitHubMirrorRepositoryFetcher({ companyId: options.companyId });
+            }
+        }
+        if (options.credentialId || options.companyId) {
+            return new DefaultGitHubRestRepositoryFetcher({
+                credentialId: options.credentialId,
+                companyId: options.companyId,
+            });
+        }
+        return this._defaultFetcher;
     }
 
     /**
@@ -351,7 +470,7 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
                 continue;
             }
 
-            const activeFetcher = this._fetcher ?? this._defaultFetcher;
+            const activeFetcher = await this.resolveRepositoryFetcher(options);
             const items = options.items
                 ?? (await activeFetcher.FetchRepositoryItems(repo.Owner, repo.Name, options.contextUser, md));
 

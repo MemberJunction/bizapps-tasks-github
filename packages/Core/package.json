@@ -23,6 +23,7 @@
     "@memberjunction/ai-prompts": "6.2.1",
     "@memberjunction/core": "6.2.1",
     "@memberjunction/core-entities": "6.2.1",
+    "@memberjunction/credentials": "6.2.1",
     "@memberjunction/global": "6.2.1",
     "@mj-biz-apps/common-entities": "5.62.0",
     "@mj-biz-apps/tasks-entities": "1.11.1",
@@ -39,6 +40,7 @@
     "@memberjunction/ai-prompts": "^6.3.0",
     "@memberjunction/core": "^6.3.0",
     "@memberjunction/core-entities": "^6.3.0",
+    "@memberjunction/credentials": "^6.3.0",
     "@memberjunction/global": "^6.3.0",
     "@mj-biz-apps/common-entities": "^5.62.0",
     "@mj-biz-apps/tasks-entities": "^1.12.0"

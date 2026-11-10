@@ -65,6 +65,24 @@ describe('BizApps Tasks GitHub Actions', () => {
         expect(badSigRes.Success).toBe(false);
         expect(badSigRes.ResultCode).toBe('INVALID_SIGNATURE');
 
+        const badSourceModeRes = await syncAction.Run({
+            Action: {} as RunActionParams['Action'],
+            ContextUser: testUser,
+            Filters: [],
+            Params: [{ Name: 'SourceMode', Type: 'Input', Value: 'InvalidMode' }],
+        });
+        expect(badSourceModeRes.Success).toBe(false);
+        expect(badSourceModeRes.ResultCode).toBe('VALIDATION_ERROR');
+
+        const badCredUuidRes = await syncAction.Run({
+            Action: {} as RunActionParams['Action'],
+            ContextUser: testUser,
+            Filters: [],
+            Params: [{ Name: 'CredentialID', Type: 'Input', Value: 'not-a-uuid' }],
+        });
+        expect(badCredUuidRes.Success).toBe(false);
+        expect(badCredUuidRes.ResultCode).toBe('VALIDATION_ERROR');
+
         const inferAction = new InferGitHubTaskFieldsAction();
         const badTaskIdRes = await inferAction.Run({
             Action: {} as RunActionParams['Action'],

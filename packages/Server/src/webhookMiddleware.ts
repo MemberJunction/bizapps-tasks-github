@@ -11,7 +11,11 @@ import {
     type ServerExtensionPhase,
 } from '@memberjunction/server';
 import { UserCache } from '@memberjunction/sqlserver-dataprovider';
-import { GitHubWebhookService } from '@mj-biz-apps/tasks-github-core';
+import {
+    GitHubWebhookService,
+    HasConfiguredGitHubWebhookSecret,
+    ResolveGitHubWebhookSecret,
+} from '@mj-biz-apps/tasks-github-core';
 
 export const DEFAULT_GITHUB_WEBHOOK_SUBPATH = '/webhooks/github/tasks';
 export const GITHUB_TASKS_WEBHOOK_DRIVER_CLASS = 'GitHubTasksWebhookServerExtension';
@@ -43,6 +47,7 @@ export interface CreateGitHubTasksWebhookHandlerOptions {
     resolveContextUser?: () => UserInfo | undefined | Promise<UserInfo | undefined>;
     configuredUserEmail?: string;
     webhookSecret?: string;
+    credentialId?: string;
     queueInference?: boolean;
     provider?: IMetadataProvider & IRunViewProvider;
 }
@@ -142,7 +147,7 @@ export function createGitHubTasksWebhookHandler(
         const eventName = readHeader(req.headers, 'x-github-event');
         const signatureHeader = readHeader(req.headers, 'x-hub-signature-256');
         const deliveryId = readHeader(req.headers, 'x-github-delivery');
-        const secret = options.webhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET ?? '';
+        const immediateSecret = (options.webhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET ?? '').trim();
 
         let rawPayload = '';
         if (Buffer.isBuffer(req.rawBody)) {
@@ -168,7 +173,12 @@ export function createGitHubTasksWebhookHandler(
             return;
         }
 
-        if (!secret || !GitHubWebhookService.Instance.VerifySignature(rawPayload, signatureHeader, secret)) {
+        if (!signatureHeader || !signatureHeader.startsWith('sha256=')) {
+            res.status(401).json({ ok: false, error: 'X-Hub-Signature-256 HMAC-SHA256 verification failed' });
+            return;
+        }
+
+        if (immediateSecret && !GitHubWebhookService.Instance.VerifySignature(rawPayload, signatureHeader, immediateSecret)) {
             res.status(401).json({ ok: false, error: 'X-Hub-Signature-256 HMAC-SHA256 verification failed' });
             return;
         }
@@ -181,6 +191,17 @@ export function createGitHubTasksWebhookHandler(
                 res.status(503).json({ ok: false, error: 'System context user unavailable' });
                 return;
             }
+
+            const secret = immediateSecret || (await ResolveGitHubWebhookSecret({
+                credentialId: options.credentialId,
+                contextUser,
+                provider: options.provider,
+            }));
+            if (!secret || !GitHubWebhookService.Instance.VerifySignature(rawPayload, signatureHeader, secret)) {
+                res.status(401).json({ ok: false, error: 'X-Hub-Signature-256 HMAC-SHA256 verification failed' });
+                return;
+            }
+
             const outcome = await GitHubWebhookService.Instance.HandleWebhook({
                 eventName,
                 deliveryId,
@@ -238,6 +259,7 @@ export function registerGitHubTasksWebhookRoute(
 @RegisterClass(BaseServerExtension, GITHUB_TASKS_WEBHOOK_DRIVER_CLASS)
 export class GitHubTasksWebhookServerExtension extends BaseServerExtension {
     private _mountedRoute: string | null = null;
+    private _webhookCredentialId: string | undefined = undefined;
 
     public override get DefaultPhase(): ServerExtensionPhase {
         return 'pre-auth';
@@ -260,10 +282,16 @@ export class GitHubTasksWebhookServerExtension extends BaseServerExtension {
             typeof settings.WebhookUserEmail === 'string'
                 ? settings.WebhookUserEmail
                 : process.env.GITHUB_WEBHOOK_USER_EMAIL;
+        const credentialId =
+            typeof settings.WebhookCredentialID === 'string'
+                ? settings.WebhookCredentialID
+                : undefined;
         const queueInference = settings.QueueInference === true;
+        this._webhookCredentialId = credentialId;
 
         const handler = createGitHubTasksWebhookHandler({
             configuredUserEmail,
+            credentialId,
             queueInference,
         });
         app.post(rootPath, handler);
@@ -278,10 +306,13 @@ export class GitHubTasksWebhookServerExtension extends BaseServerExtension {
 
     public async Shutdown(): Promise<void> {
         this._mountedRoute = null;
+        this._webhookCredentialId = undefined;
     }
 
     public async HealthCheck(): Promise<ExtensionHealthResult> {
-        const secretConfigured = Boolean(process.env.GITHUB_WEBHOOK_SECRET?.trim());
+        const secretConfigured = await HasConfiguredGitHubWebhookSecret({
+            credentialId: this._webhookCredentialId,
+        });
         return {
             Healthy: this._mountedRoute != null && secretConfigured,
             Name: GITHUB_TASKS_WEBHOOK_DRIVER_CLASS,

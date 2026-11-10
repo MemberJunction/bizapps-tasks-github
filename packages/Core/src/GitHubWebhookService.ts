@@ -10,6 +10,7 @@ import {
 import { BaseSingleton, EscapeSQLString } from '@memberjunction/global';
 import type { mjBizAppsTasksGitHubGitHubRepositoryEntity } from '@mj-biz-apps/tasks-github-entities';
 import { GITHUB_REPOSITORIES_ENTITY, GitHubTaskSyncService } from './GitHubTaskSyncService.js';
+import { DEFAULT_GITHUB_API_BASE_URL, ResolveGitHubVaultAuth } from './GitHubVaultAuthResolver.js';
 import type {
     GitHubIssueStateReason,
     GitHubPullRequestChecksStatus,
@@ -73,13 +74,46 @@ export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetche
     private static readonly MAX_LIVE_STATE_PAGES = 3;
     private static readonly REQUEST_TIMEOUT_MS = 4000;
 
-    public constructor(private readonly _explicitToken?: string) {}
+    public constructor(
+        private readonly _explicitToken?: string,
+        private readonly _explicitApiBaseUrl?: string,
+    ) {}
 
-    private getAuthToken(): string {
+    private async resolveAuth(
+        owner: string,
+        repo: string,
+        contextUser?: UserInfo,
+        provider?: IMetadataProvider,
+    ): Promise<{ token: string; apiBaseUrl: string } | null> {
         if (this._explicitToken !== undefined) {
-            return this._explicitToken.trim();
+            const cleanToken = this._explicitToken.trim();
+            if (!cleanToken) {
+                return null;
+            }
+            return {
+                token: cleanToken,
+                apiBaseUrl: (this._explicitApiBaseUrl ?? DEFAULT_GITHUB_API_BASE_URL).replace(/\/+$/, ''),
+            };
         }
-        return process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim() || '';
+
+        const resolved = await ResolveGitHubVaultAuth({
+            targetRepository: { owner, repo },
+            permissions: {
+                checks: 'read',
+                statuses: 'read',
+                pull_requests: 'read',
+                metadata: 'read',
+            },
+            contextUser,
+            provider: provider as (IMetadataProvider & IRunViewProvider) | undefined,
+        });
+        if (!resolved || !resolved.token) {
+            return null;
+        }
+        return {
+            token: resolved.token,
+            apiBaseUrl: resolved.apiBaseUrl,
+        };
     }
 
     private buildHeaders(token: string): Record<string, string> {
@@ -95,19 +129,21 @@ export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetche
         owner: string,
         repo: string,
         headSha: string,
+        contextUser?: UserInfo,
+        provider?: IMetadataProvider,
     ): Promise<GitHubPullRequestChecksStatus | null> {
-        const token = this.getAuthToken();
-        if (!token) {
+        const auth = await this.resolveAuth(owner, repo, contextUser, provider);
+        if (!auth) {
             return null;
         }
-        const headers = this.buildHeaders(token);
+        const headers = this.buildHeaders(auth.token);
         const encodedOwner = encodeURIComponent(owner);
         const encodedRepo = encodeURIComponent(repo);
         const encodedSha = encodeURIComponent(headSha);
 
         const latestRunByName = new Map<string, { id: number; status: GitHubPullRequestChecksStatus }>();
         for (let page = 1; page <= DefaultGitHubRestLiveStateFetcher.MAX_LIVE_STATE_PAGES; page += 1) {
-            const url = `https://api.github.com/repos/${encodedOwner}/${encodedRepo}/commits/${encodedSha}/check-runs?per_page=100&page=${page}`;
+            const url = `${auth.apiBaseUrl}/repos/${encodedOwner}/${encodedRepo}/commits/${encodedSha}/check-runs?per_page=100&page=${page}`;
             const response = await fetch(url, {
                 headers,
                 signal: AbortSignal.timeout(DefaultGitHubRestLiveStateFetcher.REQUEST_TIMEOUT_MS),
@@ -133,7 +169,7 @@ export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetche
             }
         }
 
-        const statusUrl = `https://api.github.com/repos/${encodedOwner}/${encodedRepo}/commits/${encodedSha}/status`;
+        const statusUrl = `${auth.apiBaseUrl}/repos/${encodedOwner}/${encodedRepo}/commits/${encodedSha}/status`;
         const statusRes = await fetch(statusUrl, {
             headers,
             signal: AbortSignal.timeout(DefaultGitHubRestLiveStateFetcher.REQUEST_TIMEOUT_MS),
@@ -173,18 +209,20 @@ export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetche
         repo: string,
         pullNumber: number,
         hasRequestedReviewers: boolean,
+        contextUser?: UserInfo,
+        provider?: IMetadataProvider,
     ): Promise<GitHubPullRequestReviewDecision | null | undefined> {
-        const token = this.getAuthToken();
-        if (!token) {
+        const auth = await this.resolveAuth(owner, repo, contextUser, provider);
+        if (!auth) {
             return undefined;
         }
-        const headers = this.buildHeaders(token);
+        const headers = this.buildHeaders(auth.token);
         const encodedOwner = encodeURIComponent(owner);
         const encodedRepo = encodeURIComponent(repo);
 
         const reviewerDecisions = new Map<string, 'APPROVED' | 'CHANGES_REQUESTED'>();
         for (let page = 1; page <= DefaultGitHubRestLiveStateFetcher.MAX_LIVE_STATE_PAGES; page += 1) {
-            const url = `https://api.github.com/repos/${encodedOwner}/${encodedRepo}/pulls/${pullNumber}/reviews?per_page=100&page=${page}`;
+            const url = `${auth.apiBaseUrl}/repos/${encodedOwner}/${encodedRepo}/pulls/${pullNumber}/reviews?per_page=100&page=${page}`;
             const response = await fetch(url, {
                 headers,
                 signal: AbortSignal.timeout(DefaultGitHubRestLiveStateFetcher.REQUEST_TIMEOUT_MS),
@@ -537,7 +575,13 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             return this.handleCheckEvent(cleanEvent, parsed, repository, cleanDeliveryId, params.contextUser, md as IMetadataProvider & IRunViewProvider);
         }
 
-        const normalizedItem = await this.extractNormalizedItem(cleanEvent, parsed, repository);
+        const normalizedItem = await this.extractNormalizedItem(
+            cleanEvent,
+            parsed,
+            repository,
+            params.contextUser,
+            md,
+        );
         if (!normalizedItem) {
             return {
                 status: 'validation_error',
@@ -658,6 +702,8 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
                 repository.Owner,
                 repository.Name,
                 headSha,
+                contextUser,
+                provider,
             );
         } catch (err) {
             LogError(
@@ -773,6 +819,8 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
         eventName: 'issues' | 'pull_request' | 'pull_request_review',
         payload: WebhookEnvelopePayload,
         repository: mjBizAppsTasksGitHubGitHubRepositoryEntity,
+        contextUser?: UserInfo,
+        provider?: IMetadataProvider,
     ): Promise<NormalizedGitHubSyncItem | null> {
         if (eventName === 'issues') {
             const issue = payload.issue;
@@ -848,6 +896,8 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
                         repository.Name,
                         pr.number,
                         hasRemainingReviewers,
+                        contextUser,
+                        provider,
                     );
                 } catch (err) {
                     LogError(
