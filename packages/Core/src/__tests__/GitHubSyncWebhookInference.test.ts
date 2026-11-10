@@ -1,4 +1,6 @@
 import { createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type {
     EntityInfo,
@@ -17,6 +19,7 @@ import {
     GITHUB_ISSUE_TASKS_ENTITY,
     GITHUB_PR_TASKS_ENTITY,
     GITHUB_REPOSITORIES_ENTITY,
+    GitHubFieldOwnershipPolicy,
     GitHubTaskInferenceService,
     GitHubTaskSyncService,
     GitHubWebhookService,
@@ -217,12 +220,15 @@ function buildTestHarness() {
             if (entityName === GITHUB_ISSUE_TASKS_ENTITY || entityName === GITHUB_PR_TASKS_ENTITY) {
                 const repoNum = /RepositoryID = '([^']+)' AND Number = (\d+)/.exec(extraFilter);
                 const nodeMatch = /NodeID = '([^']+)'/.exec(extraFilter);
-                if (repoNum) {
-                    const byRepoNum =
-                        String(rec.RepositoryID ?? '').toLowerCase() === repoNum[1].toLowerCase()
-                        && rec.Number === Number(repoNum[2]);
+                const headShaMatch = /HeadSha = '([^']+)'/.exec(extraFilter);
+                if (repoNum || headShaMatch) {
+                    const byRepoNum = repoNum
+                        ? String(rec.RepositoryID ?? '').toLowerCase() === repoNum[1].toLowerCase()
+                            && rec.Number === Number(repoNum[2])
+                        : false;
                     const byNode = nodeMatch ? rec.NodeID === nodeMatch[1] : false;
-                    return byRepoNum || byNode;
+                    const byHeadSha = headShaMatch ? rec.HeadSha === headShaMatch[1] : false;
+                    return byRepoNum || byNode || byHeadSha;
                 }
                 const repoOpenMatch = /^RepositoryID = '([^']+)' AND Status IN \('Open', 'InProgress'\)$/.exec(extraFilter);
                 if (repoOpenMatch) {
@@ -679,7 +685,12 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
         const h = buildTestHarness();
         const secret = 'concurrent-secret';
 
-        const makeIssueWebhook = (action: string, title: string, assignees: Array<{ login: string }>) => {
+        const makeIssueWebhook = (
+            action: string,
+            title: string,
+            assignees: Array<{ login: string }>,
+            updatedAt = '2026-11-10T10:00:00.000Z',
+        ) => {
             const payload = JSON.stringify({
                 action,
                 repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
@@ -691,15 +702,15 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
                     html_url: 'https://github.com/MemberJunction/bizapps-tasks/issues/88',
                     state: 'open',
                     assignees,
-                    updated_at: '2026-11-10T10:00:00.000Z',
+                    updated_at: updatedAt,
                 },
             });
             const sig = `sha256=${createHmac('sha256', secret).update(payload, 'utf8').digest('hex')}`;
             return { payload, sig };
         };
 
-        const d1 = makeIssueWebhook('opened', 'Race Issue #88', []);
-        const d2 = makeIssueWebhook('assigned', 'Race Issue #88', [{ login: 'alice-dev' }]);
+        const d1 = makeIssueWebhook('opened', 'Race Issue #88', [], '2026-11-10T10:00:00.000Z');
+        const d2 = makeIssueWebhook('assigned', 'Race Issue #88', [{ login: 'alice-dev' }], '2026-11-10T10:00:01.000Z');
 
         const [res1, res2] = await Promise.all([
             GitHubWebhookService.Instance.HandleWebhook({
@@ -1096,5 +1107,281 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
         expect(childSuggestions).toHaveLength(1);
         expect(childSuggestions[0].AnchorKey).toBe('ParentID');
         expect(childSuggestions[0].SuggestedValue).toBe(JSON.stringify(validParentId));
+    });
+
+    it('transitions PR ChecksStatus from Pending to Passing/Failing on check_suite and check_run completion events', async () => {
+        const h = buildTestHarness();
+        const secret = 'checks-webhook-secret';
+
+        // 1. Open and synchronize PR #500 -> ChecksStatus starts at 'Pending'
+        const syncPrRaw = JSON.stringify({
+            action: 'synchronize',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            pull_request: {
+                number: 500,
+                node_id: 'PR_500',
+                title: 'feat: software factory gate checks',
+                body: 'Wait on CI checks',
+                html_url: 'https://github.com/MemberJunction/bizapps-tasks/pull/500',
+                state: 'open',
+                draft: false,
+                head: { ref: 'feat/checks-gate', sha: 'sha-checks-500' },
+                base: { ref: 'next' },
+                updated_at: '2026-11-10T14:00:00.000Z',
+            },
+        });
+        await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'pull_request',
+            deliveryId: 'pr-500-sync',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(syncPrRaw, 'utf8').digest('hex')}`,
+            rawPayload: syncPrRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+
+        let prExt = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values())[0];
+        expect(prExt.ChecksStatus).toBe('Pending');
+
+        // 2. check_suite completed with conclusion='success' transitions ChecksStatus -> 'Passing'
+        const checkSuiteSuccessRaw = JSON.stringify({
+            action: 'completed',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            check_suite: {
+                status: 'completed',
+                conclusion: 'success',
+                head_sha: 'sha-checks-500',
+                pull_requests: [{ number: 500 }],
+            },
+        });
+        const suiteRes = await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'check_suite',
+            deliveryId: 'pr-500-suite-pass',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(checkSuiteSuccessRaw, 'utf8').digest('hex')}`,
+            rawPayload: checkSuiteSuccessRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+        expect(suiteRes.status).toBe('synced');
+        prExt = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values())[0];
+        expect(prExt.ChecksStatus).toBe('Passing');
+
+        // 3. check_run completed with conclusion='failure' matched by head_sha transitions ChecksStatus -> 'Failing'
+        const checkRunFailRaw = JSON.stringify({
+            action: 'completed',
+            repository: { name: 'bizapps-tasks', owner: { login: 'MemberJunction' } },
+            check_run: {
+                status: 'completed',
+                conclusion: 'failure',
+                head_sha: 'sha-checks-500',
+                pull_requests: [],
+            },
+        });
+        const runRes = await GitHubWebhookService.Instance.HandleWebhook({
+            eventName: 'check_run',
+            deliveryId: 'pr-500-run-fail',
+            signatureHeader: `sha256=${createHmac('sha256', secret).update(checkRunFailRaw, 'utf8').digest('hex')}`,
+            rawPayload: checkRunFailRaw,
+            webhookSecret: secret,
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+        expect(runRes.status).toBe('synced');
+        prExt = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values())[0];
+        expect(prExt.ChecksStatus).toBe('Failing');
+    });
+
+    it('treats equal updated_at timestamps as stale and rejects malformed assignee elements in ValidateNormalizedGitHubSyncItem', async () => {
+        const h = buildTestHarness();
+
+        await GitHubTaskSyncService.Instance.SyncRepositories({
+            repositoryId: h.ids.REPO_ALL_ID,
+            items: [
+                {
+                    kind: 'issue',
+                    number: 601,
+                    nodeId: 'I_601',
+                    title: 'Original Title at T0',
+                    body: 'Body at T0',
+                    htmlUrl: 'https://github.com/MemberJunction/bizapps-tasks/issues/601',
+                    state: 'open',
+                    updatedAt: '2026-11-10T15:00:00.000Z',
+                },
+            ],
+            contextUser: h.contextUser,
+            provider: h.provider,
+            runInference: false,
+        });
+
+        // Re-sync with the exact same updatedAt timestamp -> treated as stale/skipped
+        const equalSync = await GitHubTaskSyncService.Instance.SyncRepositories({
+            repositoryId: h.ids.REPO_ALL_ID,
+            items: [
+                {
+                    kind: 'issue',
+                    number: 601,
+                    nodeId: 'I_601',
+                    title: 'Mutated Title With Equal Timestamp',
+                    body: 'Body at T0',
+                    htmlUrl: 'https://github.com/MemberJunction/bizapps-tasks/issues/601',
+                    state: 'open',
+                    updatedAt: '2026-11-10T15:00:00.000Z',
+                },
+            ],
+            contextUser: h.contextUser,
+            provider: h.provider,
+            runInference: false,
+        });
+        expect(equalSync[0].skipped).toBe(1);
+        expect(equalSync[0].updated).toBe(0);
+        const savedTask = Array.from(h.getStore(TASKS_ENTITY_NAME).values())[0];
+        expect(savedTask.Name).toBe('Original Title at T0');
+
+        // ValidateNormalizedGitHubSyncItem rejects assignees: [{}] cleanly without throwing TypeError
+        const badAssigneesValidation = GitHubFieldOwnershipPolicy.ValidateNormalizedGitHubSyncItem(
+            {
+                kind: 'issue',
+                number: 1,
+                nodeId: 'I_1',
+                title: 'Bad assignees',
+                htmlUrl: 'https://github.com/MemberJunction/MJ/issues/1',
+                state: 'open',
+                assignees: [{}],
+            },
+            'MemberJunction/MJ',
+        );
+        expect(badAssigneesValidation.valid).toBe(false);
+        expect(badAssigneesValidation.error).toContain('Invalid assignees[0]: login must be a non-empty string');
+    });
+
+    it('recovers from cross-process unique-key collision with AutoEnsureOnSave and surfaces task.Delete() failure', async () => {
+        const h = buildTestHarness();
+
+        // Simulate another process having inserted Issue #700 right after preloadRepositoryExtensions ran
+        const winningTaskId = '00000000-0000-4000-8000-000000000700';
+        const originalGetEntityObject = h.provider.GetEntityObject.bind(h.provider);
+        let injectedConcurrentWinner = false;
+        h.provider.GetEntityObject = async (entityName: string) => {
+            const entity = await originalGetEntityObject(entityName);
+            if (entityName === TASKS_ENTITY_NAME && !injectedConcurrentWinner) {
+                injectedConcurrentWinner = true;
+                // Winning process inserts parent Task + GitHubIssueTask for (REPO_ALL_ID, 700)
+                h.getStore(TASKS_ENTITY_NAME).set(winningTaskId, {
+                    ID: winningTaskId,
+                    Name: 'Winner Issue #700',
+                    Status: 'Open',
+                });
+                h.getStore(GITHUB_ISSUE_TASKS_ENTITY).set(winningTaskId, {
+                    ID: winningTaskId,
+                    RepositoryID: h.ids.REPO_ALL_ID,
+                    Number: 700,
+                    NodeID: 'I_700',
+                    HtmlURL: 'https://github.com/MemberJunction/bizapps-tasks/issues/700',
+                    State: 'open',
+                });
+            }
+            return entity;
+        };
+
+        const recoverySync = await GitHubTaskSyncService.Instance.SyncRepositories({
+            repositoryId: h.ids.REPO_ALL_ID,
+            items: [
+                {
+                    kind: 'issue',
+                    number: 700,
+                    nodeId: 'I_700',
+                    title: 'Recovered Title #700',
+                    body: 'Recovered body',
+                    htmlUrl: 'https://github.com/MemberJunction/bizapps-tasks/issues/700',
+                    state: 'open',
+                },
+            ],
+            contextUser: h.contextUser,
+            provider: h.provider,
+            runInference: false,
+        });
+
+        expect(recoverySync[0].updated).toBe(1);
+        // Only the winning Task and its extension row remain; the losing Task + AutoEnsureOnSave child row were both deleted
+        expect(h.getStore(TASKS_ENTITY_NAME).size).toBe(1);
+        expect(h.getStore(GITHUB_ISSUE_TASKS_ENTITY).size).toBe(1);
+        expect(h.getStore(TASKS_ENTITY_NAME).get(winningTaskId)?.Name).toBe('Recovered Title #700');
+
+        // Now verify that if task.Delete() fails during collision recovery, SyncRepositories throws instead of leaving an silent orphan
+        const winningTaskId2 = '00000000-0000-4000-8000-000000000701';
+        let injectedWinner2 = false;
+        h.provider.GetEntityObject = async (entityName: string) => {
+            const entity = await originalGetEntityObject(entityName);
+            if (entityName === TASKS_ENTITY_NAME && !injectedWinner2) {
+                injectedWinner2 = true;
+                h.getStore(TASKS_ENTITY_NAME).set(winningTaskId2, {
+                    ID: winningTaskId2,
+                    Name: 'Winner Issue #701',
+                    Status: 'Open',
+                });
+                h.getStore(GITHUB_ISSUE_TASKS_ENTITY).set(winningTaskId2, {
+                    ID: winningTaskId2,
+                    RepositoryID: h.ids.REPO_ALL_ID,
+                    Number: 701,
+                    NodeID: 'I_701',
+                    HtmlURL: 'https://github.com/MemberJunction/bizapps-tasks/issues/701',
+                    State: 'open',
+                });
+                entity.Delete = async () => {
+                    entity.LatestResult = { CompleteMessage: 'Simulated FK constraint error on Task.Delete' };
+                    return false;
+                };
+            }
+            return entity;
+        };
+
+        await expect(
+            GitHubTaskSyncService.Instance.SyncRepositories({
+                repositoryId: h.ids.REPO_ALL_ID,
+                items: [
+                    {
+                        kind: 'issue',
+                        number: 701,
+                        nodeId: 'I_701',
+                        title: 'Unrecoverable orphan test',
+                        body: '',
+                        htmlUrl: 'https://github.com/MemberJunction/bizapps-tasks/issues/701',
+                        state: 'open',
+                    },
+                ],
+                contextUser: h.contextUser,
+                provider: h.provider,
+                runInference: false,
+            }),
+        ).rejects.toThrow(/Failed deleting orphan Task/);
+    });
+
+    it('verifies SQL Server and PostgreSQL teardown scripts contain valid schema and column references', () => {
+        const sqlServerTeardownPath = resolve(
+            import.meta.dirname,
+            '../../../../teardown/V1__Remove_GitHub_Tasks_Extension.sql',
+        );
+        const pgTeardownPath = resolve(
+            import.meta.dirname,
+            '../../../../teardown-pg/V1__Remove_GitHub_Tasks_Extension.pg.sql',
+        );
+        const sqlServerTeardown = readFileSync(sqlServerTeardownPath, 'utf8');
+        const pgTeardown = readFileSync(pgTeardownPath, 'utf8');
+
+        // Must not contain non-existent columns or unsubstituted flyway placeholders
+        for (const script of [sqlServerTeardown, pgTeardown]) {
+            expect(script).not.toContain('OriginalPromptRunID');
+            expect(script).toContain('RerunFromPromptRunID');
+            expect(script).toContain('AIPromptRunMedia');
+            expect(script).toContain('AIResultCache');
+            expect(script).not.toContain('DecidedForTaskID');
+            expect(script).not.toContain('ParentCommentID');
+            expect(script).not.toContain('${flyway:defaultSchema}');
+            expect(script).toContain('ConversationDetail');
+            expect(script).toContain('ConversationArtifact');
+        }
+        expect(sqlServerTeardown).toContain('[__mj_BizAppsTasksGitHub].[GitHubPullRequestTask]');
+        expect(sqlServerTeardown).toContain('[__mj_BizAppsTasksGitHub].[GitHubIssueTask]');
     });
 });

@@ -10,15 +10,12 @@ import type {
 } from '@mj-biz-apps/tasks-github-entities';
 import {
     AssertValidUUID,
-    CandidateSyncItemInput,
     GITHUB_ISSUE_TASKS_ENTITY,
     GITHUB_PR_TASKS_ENTITY,
     GITHUB_REPOSITORIES_ENTITY,
-    GitHubFieldOwnershipPolicy,
     GitHubTaskInferenceService,
     GitHubTaskSyncService,
     GitHubWebhookService,
-    NormalizedGitHubSyncItem,
     TASKS_ENTITY_NAME,
 } from '@mj-biz-apps/tasks-github-core';
 
@@ -26,6 +23,17 @@ function getStringParam(params: ActionParam[], name: string): string | null {
     const match = params.find((p) => p.Name.toLowerCase() === name.toLowerCase());
     if (!match || match.Value == null) return null;
     const str = String(match.Value).trim();
+    return str.length > 0 ? str : null;
+}
+
+/**
+ * Returns the exact untrimmed string parameter value (used for `RawPayload` so
+ * trailing newlines or whitespace in a webhook body are preserved for HMAC verification).
+ */
+function getRawStringParam(params: ActionParam[], name: string): string | null {
+    const match = params.find((p) => p.Name.toLowerCase() === name.toLowerCase());
+    if (!match || match.Value == null) return null;
+    const str = String(match.Value);
     return str.length > 0 ? str : null;
 }
 
@@ -65,56 +73,23 @@ export class SyncGitHubRepositoryTasksAction extends BaseAction {
                 };
             }
 
-            const itemsJson = getStringParam(params.Params, 'ItemsJSON');
-            let parsedItems: NormalizedGitHubSyncItem[] | undefined;
-            if (itemsJson) {
-                if (!repositoryId) {
-                    return {
-                        Success: false,
-                        ResultCode: 'VALIDATION_ERROR',
-                        Message: 'RepositoryID is required when supplying ItemsJSON',
-                    };
-                }
-                let rawArray: CandidateSyncItemInput[];
-                try {
-                    const candidate = JSON.parse(itemsJson) as CandidateSyncItemInput[];
-                    if (!Array.isArray(candidate)) {
-                        return {
-                            Success: false,
-                            ResultCode: 'VALIDATION_ERROR',
-                            Message: 'ItemsJSON must be a JSON array of NormalizedGitHubSyncItem objects',
-                        };
-                    }
-                    rawArray = candidate;
-                } catch {
-                    return {
-                        Success: false,
-                        ResultCode: 'VALIDATION_ERROR',
-                        Message: 'ItemsJSON is not valid JSON',
-                    };
-                }
-
-                const validatedItems: NormalizedGitHubSyncItem[] = [];
-                for (let i = 0; i < rawArray.length; i += 1) {
-                    const check = GitHubFieldOwnershipPolicy.ValidateNormalizedGitHubSyncItem(rawArray[i]);
-                    if (!check.valid || !check.item) {
-                        return {
-                            Success: false,
-                            ResultCode: 'VALIDATION_ERROR',
-                            Message: `Invalid item at index ${i} in ItemsJSON: ${check.error ?? 'validation failed'}`,
-                        };
-                    }
-                    validatedItems.push(check.item);
-                }
-                parsedItems = validatedItems;
+            // Security: The agent-facing action never accepts caller-supplied ItemsJSON payloads.
+            // Items are always fetched server-side from GitHub via the configured IGitHubRepositoryFetcher.
+            const rawItemsParam = getRawStringParam(params.Params, 'ItemsJSON');
+            if (rawItemsParam !== null) {
+                return {
+                    Success: false,
+                    ResultCode: 'VALIDATION_ERROR',
+                    Message:
+                        'ItemsJSON is not accepted by Sync GitHub Repository Tasks; items are always fetched from GitHub server-side.',
+                };
             }
 
-            const runInference = getBooleanParam(params.Params, 'RunInference', true);
+            const runInference = getBooleanParam(params.Params, 'RunInference', false);
             const provider = params.Provider as (IMetadataProvider & IRunViewProvider) | undefined;
 
             const summaries = await GitHubTaskSyncService.Instance.SyncRepositories({
                 repositoryId,
-                items: parsedItems,
                 runInference,
                 contextUser: params.ContextUser,
                 provider,
@@ -165,7 +140,7 @@ export class HandleGitHubWebhookAction extends BaseAction {
         try {
             const eventName = getStringParam(params.Params, 'EventName');
             const signatureHeader = getStringParam(params.Params, 'SignatureHeader');
-            const rawPayload = getStringParam(params.Params, 'RawPayload');
+            const rawPayload = getRawStringParam(params.Params, 'RawPayload');
             const deliveryId = getStringParam(params.Params, 'DeliveryID');
             // Security: always read the HMAC secret exclusively from server configuration, never from caller params.
             const webhookSecret = (process.env.GITHUB_WEBHOOK_SECRET ?? '').trim();
@@ -275,8 +250,18 @@ export class InferGitHubTaskFieldsAction extends BaseAction {
                 },
             ], params.ContextUser);
 
-            const issueRow = ((issueRes?.Results as mjBizAppsTasksGitHubGitHubIssueTaskEntity[] | undefined) ?? [])[0] ?? null;
-            const prRow = ((prRes?.Results as mjBizAppsTasksGitHubGitHubPullRequestTaskEntity[] | undefined) ?? [])[0] ?? null;
+            if (!issueRes?.Success || !prRes?.Success) {
+                const errMsg = issueRes?.ErrorMessage || prRes?.ErrorMessage || 'Failed to query GitHub extension rows';
+                LogError(new Error(`[InferGitHubTaskFieldsAction] ${errMsg}`));
+                return {
+                    Success: false,
+                    ResultCode: 'FAILED',
+                    Message: errMsg,
+                };
+            }
+
+            const issueRow = ((issueRes.Results as mjBizAppsTasksGitHubGitHubIssueTaskEntity[] | undefined) ?? [])[0] ?? null;
+            const prRow = ((prRes.Results as mjBizAppsTasksGitHubGitHubPullRequestTaskEntity[] | undefined) ?? [])[0] ?? null;
             const extRow = issueRow ?? prRow;
             if (!extRow || !extRow.RepositoryID) {
                 return {
@@ -295,6 +280,15 @@ export class InferGitHubTaskFieldsAction extends BaseAction {
                 },
                 params.ContextUser,
             );
+            if (!repoRes.Success) {
+                const errMsg = repoRes.ErrorMessage || `Failed to load repository '${extRow.RepositoryID}'`;
+                LogError(new Error(`[InferGitHubTaskFieldsAction] ${errMsg}`));
+                return {
+                    Success: false,
+                    ResultCode: 'FAILED',
+                    Message: errMsg,
+                };
+            }
             const repo = repoRes.Results?.[0] ?? null;
             const repoFullName = repo ? `${repo.Owner}/${repo.Name}` : 'unknown/unknown';
 

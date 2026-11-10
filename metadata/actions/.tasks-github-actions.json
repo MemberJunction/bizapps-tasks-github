@@ -24,24 +24,10 @@
             "ValueType": "Scalar",
             "IsArray": false,
             "IsRequired": false,
-            "Description": "GitHubRepository ID. Required when ItemsJSON is supplied; when omitted, all tracked repositories (IsTracked = 1) are synchronized via the server's GitHub REST fetcher."
+            "Description": "Optional GitHubRepository ID. When omitted, all tracked repositories (IsTracked = 1) are synchronized via the server's GitHub REST fetcher."
           },
           "primaryKey": {
             "ID": "60B84688-4C3D-4F2A-9514-3E9C86011F45"
-          }
-        },
-        {
-          "fields": {
-            "ActionID": "@parent:ID",
-            "Name": "ItemsJSON",
-            "Type": "Input",
-            "ValueType": "Scalar",
-            "IsArray": false,
-            "IsRequired": false,
-            "Description": "Optional JSON array of validated NormalizedGitHubSyncItem objects scoped to RepositoryID."
-          },
-          "primaryKey": {
-            "ID": "F0CD4806-D7B8-4600-835B-C5777954255F"
           }
         },
         {
@@ -52,7 +38,7 @@
             "ValueType": "Scalar",
             "IsArray": false,
             "IsRequired": false,
-            "Description": "Whether to run planning Field Suggestion inference on newly created or body-updated items (default true)."
+            "Description": "Whether to run planning Field Suggestion inference on newly created or body-updated items (default false)."
           },
           "primaryKey": {
             "ID": "25020841-BE3C-425E-B46E-810E59D1F1C1"
@@ -125,7 +111,7 @@
     "fields": {
       "Name": "Handle GitHub Tasks Webhook",
       "CategoryID": "@lookup:MJ: Action Categories.Name=Tasks GitHub",
-      "Description": "Verifies GitHub X-Hub-Signature-256 HMAC-SHA256 signatures and immediately synchronizes the single affected issue or pull request for issues, pull_request, and pull_request_review events.",
+      "Description": "Verifies GitHub X-Hub-Signature-256 HMAC-SHA256 signatures and immediately synchronizes the single affected issue or pull request for issues, pull_request, pull_request_review, check_suite, and check_run events.",
       "Type": "Custom",
       "DriverClass": "TasksGitHub.HandleWebhook",
       "IconClass": "fa-solid fa-satellite-dish",
@@ -146,7 +132,7 @@
             "ValueType": "Scalar",
             "IsArray": false,
             "IsRequired": true,
-            "Description": "X-GitHub-Event header value (issues, pull_request, pull_request_review)."
+            "Description": "X-GitHub-Event header value (issues, pull_request, pull_request_review, check_suite, check_run)."
           },
           "primaryKey": {
             "ID": "9A816833-0053-4ECE-8699-60D132EF31DE"

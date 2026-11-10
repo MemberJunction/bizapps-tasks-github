@@ -228,6 +228,45 @@ export class GitHubFieldOwnershipPolicy {
             }
         }
 
+        const validateUserRefs = (
+            input: string | number | boolean | null | undefined | Date | string[] | NormalizedGitHubUserRef[],
+            fieldLabel: string,
+        ): { valid: boolean; error?: string; refs?: NormalizedGitHubUserRef[] } => {
+            if (input === undefined || input === null) {
+                return { valid: true, refs: undefined };
+            }
+            if (!Array.isArray(input)) {
+                return { valid: false, error: `Sync item ${fieldLabel} must be an array` };
+            }
+            const normalized: NormalizedGitHubUserRef[] = [];
+            for (let i = 0; i < input.length; i += 1) {
+                const entry = input[i];
+                if (!entry || typeof entry !== 'object') {
+                    return { valid: false, error: `Invalid ${fieldLabel}[${i}]: must be an object with login` };
+                }
+                const refObj = entry as { login?: string | number | boolean | null; userId?: string | number | null };
+                if (typeof refObj.login !== 'string' || refObj.login.trim().length === 0) {
+                    return {
+                        valid: false,
+                        error: `Invalid ${fieldLabel}[${i}]: login must be a non-empty string`,
+                    };
+                }
+                const userIdVal =
+                    refObj.userId == null
+                        ? null
+                        : typeof refObj.userId === 'string' || typeof refObj.userId === 'number'
+                          ? String(refObj.userId).trim() || null
+                          : null;
+                normalized.push({ login: refObj.login.trim(), userId: userIdVal });
+            }
+            return { valid: true, refs: normalized };
+        };
+
+        const assigneesCheck = validateUserRefs(raw.assignees, 'assignees');
+        if (!assigneesCheck.valid) {
+            return { valid: false, error: assigneesCheck.error };
+        }
+
         if (kind === 'issue') {
             const state = raw.state;
             if (state !== 'open' && state !== 'closed') {
@@ -271,15 +310,18 @@ export class GitHubFieldOwnershipPolicy {
                 assigneeLogins: Array.isArray(raw.assigneeLogins)
                     ? raw.assigneeLogins.filter((l): l is string => typeof l === 'string')
                     : undefined,
-                assignees: Array.isArray(raw.assignees)
-                    ? (raw.assignees as NormalizedGitHubUserRef[])
-                    : undefined,
+                assignees: assigneesCheck.refs,
                 updatedAt:
                     typeof raw.updatedAt === 'string' || raw.updatedAt instanceof Date
                         ? raw.updatedAt
                         : null,
             };
             return { valid: true, item: issueItem };
+        }
+
+        const reviewersCheck = validateUserRefs(raw.requestedReviewers, 'requestedReviewers');
+        if (!reviewersCheck.valid) {
+            return { valid: false, error: reviewersCheck.error };
         }
 
         const prState = raw.state;
@@ -307,8 +349,8 @@ export class GitHubFieldOwnershipPolicy {
             checksStatus !== undefined
             && checksStatus !== null
             && checksStatus !== 'Pending'
-            && checksStatus !== 'Success'
-            && checksStatus !== 'Failure'
+            && checksStatus !== 'Passing'
+            && checksStatus !== 'Failing'
             && checksStatus !== 'Neutral'
         ) {
             return {
@@ -333,15 +375,11 @@ export class GitHubFieldOwnershipPolicy {
             assigneeLogins: Array.isArray(raw.assigneeLogins)
                 ? raw.assigneeLogins.filter((l): l is string => typeof l === 'string')
                 : undefined,
-            assignees: Array.isArray(raw.assignees)
-                ? (raw.assignees as NormalizedGitHubUserRef[])
-                : undefined,
+            assignees: assigneesCheck.refs,
             requestedReviewerLogins: Array.isArray(raw.requestedReviewerLogins)
                 ? raw.requestedReviewerLogins.filter((l): l is string => typeof l === 'string')
                 : undefined,
-            requestedReviewers: Array.isArray(raw.requestedReviewers)
-                ? (raw.requestedReviewers as NormalizedGitHubUserRef[])
-                : undefined,
+            requestedReviewers: reviewersCheck.refs,
             reviewDecision:
                 reviewDecision === undefined
                     ? undefined

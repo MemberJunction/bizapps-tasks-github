@@ -56,7 +56,7 @@ Each `GitHubRepository` declares an `ImportRule`:
 `GitHubWebhookService` and `createGitHubTasksWebhookHandler` verify every webhook delivery **fail-closed**:
 
 1. Rejects missing secrets, missing `X-Hub-Signature-256` headers, non-hex digests, or mismatched HMAC-SHA256 digests using `crypto.timingSafeEqual` (`HTTP 401`).
-2. Processes `issues`, `pull_request`, and `pull_request_review` events immediately into `GitHubTaskSyncService`.
+2. Processes `issues`, `pull_request`, `pull_request_review`, `check_suite`, and `check_run` events immediately into `GitHubTaskSyncService`.
 3. Returns `200 { ok: true, status: 'ignored' }` for `ping` or untracked repositories without creating noisy rows.
 
 ### Mounting in Host MJAPI / Express Server
@@ -82,7 +82,7 @@ registerGitHubTasksWebhookRoute(app, {
 });
 ```
 
-For bulk repository synchronization (`SyncGitHubRepositoryTasksAction` without `ItemsJSON`), set `GITHUB_TOKEN` (or `GH_TOKEN`) on the server so `DefaultGitHubRestRepositoryFetcher` fetches issues and pull requests from the GitHub REST API, or register a custom `IGitHubRepositoryFetcher` via `GitHubTaskSyncService.Instance.SetRepositoryFetcher(...)`.
+For bulk repository synchronization (`SyncGitHubRepositoryTasksAction`), set `GITHUB_TOKEN` (or `GH_TOKEN`) on the server so `DefaultGitHubRestRepositoryFetcher` fetches issues and pull requests directly from the GitHub REST API, or register a custom `IGitHubRepositoryFetcher` via `GitHubTaskSyncService.Instance.SetRepositoryFetcher(...)`. Caller-supplied `ItemsJSON` is not accepted on the agent-facing action so untrusted content cannot forge repository items.
 
 ---
 

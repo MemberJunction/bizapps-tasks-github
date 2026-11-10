@@ -37,52 +37,19 @@ describe('BizApps Tasks GitHub Actions', () => {
         expect(badUuidRes.Success).toBe(false);
         expect(badUuidRes.ResultCode).toBe('VALIDATION_ERROR');
 
-        const badJsonRes = await syncAction.Run({
-            Action: {} as RunActionParams['Action'],
-            ContextUser: testUser,
-            Filters: [],
-            Params: [{ Name: 'ItemsJSON', Type: 'Input', Value: '{not-an-array}' }],
-        });
-        expect(badJsonRes.Success).toBe(false);
-        expect(badJsonRes.ResultCode).toBe('VALIDATION_ERROR');
-
-        // ItemsJSON without RepositoryID is rejected
-        const missingRepoRes = await syncAction.Run({
-            Action: {} as RunActionParams['Action'],
-            ContextUser: testUser,
-            Filters: [],
-            Params: [{ Name: 'ItemsJSON', Type: 'Input', Value: '[]' }],
-        });
-        expect(missingRepoRes.Success).toBe(false);
-        expect(missingRepoRes.ResultCode).toBe('VALIDATION_ERROR');
-        expect(missingRepoRes.Message).toContain('RepositoryID is required');
-
-        // ItemsJSON with an invalid item kind (e.g. 'discussion') is rejected instead of falling through to PR
-        const badKindRes = await syncAction.Run({
+        // ItemsJSON is rejected on the agent-facing action so untrusted content cannot forge repository items
+        const rejectedItemsJsonRes = await syncAction.Run({
             Action: {} as RunActionParams['Action'],
             ContextUser: testUser,
             Filters: [],
             Params: [
                 { Name: 'RepositoryID', Type: 'Input', Value: '55555555-5555-4555-8555-000000000001' },
-                {
-                    Name: 'ItemsJSON',
-                    Type: 'Input',
-                    Value: JSON.stringify([
-                        {
-                            kind: 'discussion',
-                            number: 1,
-                            nodeId: 'D_1',
-                            title: 'Injected discussion',
-                            htmlUrl: 'https://github.com/MemberJunction/MJ/discussions/1',
-                            state: 'open',
-                        },
-                    ]),
-                },
+                { Name: 'ItemsJSON', Type: 'Input', Value: '[]' },
             ],
         });
-        expect(badKindRes.Success).toBe(false);
-        expect(badKindRes.ResultCode).toBe('VALIDATION_ERROR');
-        expect(badKindRes.Message).toContain("must be 'issue' or 'pull_request'");
+        expect(rejectedItemsJsonRes.Success).toBe(false);
+        expect(rejectedItemsJsonRes.ResultCode).toBe('VALIDATION_ERROR');
+        expect(rejectedItemsJsonRes.Message).toContain('ItemsJSON is not accepted');
 
         const webhookAction = new HandleGitHubWebhookAction();
         const badSigRes = await webhookAction.Run({
@@ -132,8 +99,9 @@ describe('BizApps Tasks GitHub Actions', () => {
             expect(forgedRes.Success).toBe(false);
             expect(forgedRes.ResultCode).toBe('INVALID_SIGNATURE');
 
-            // Signing with the server-configured secret succeeds
-            const validSig = `sha256=${createHmac('sha256', 'server-configured-secret').update(rawPayload, 'utf8').digest('hex')}`;
+            // Signing a RawPayload that ends with trailing newline/whitespace succeeds without trimming
+            const rawWithTrailingNewline = `${JSON.stringify({ zen: 'Preserve trailing newline' })}\n`;
+            const validSig = `sha256=${createHmac('sha256', 'server-configured-secret').update(rawWithTrailingNewline, 'utf8').digest('hex')}`;
             const validRes = await webhookAction.Run({
                 Action: {} as RunActionParams['Action'],
                 ContextUser: testUser,
@@ -141,7 +109,7 @@ describe('BizApps Tasks GitHub Actions', () => {
                 Params: [
                     { Name: 'EventName', Type: 'Input', Value: 'ping' },
                     { Name: 'SignatureHeader', Type: 'Input', Value: validSig },
-                    { Name: 'RawPayload', Type: 'Input', Value: rawPayload },
+                    { Name: 'RawPayload', Type: 'Input', Value: rawWithTrailingNewline },
                 ],
             });
             expect(validRes.Success).toBe(true);

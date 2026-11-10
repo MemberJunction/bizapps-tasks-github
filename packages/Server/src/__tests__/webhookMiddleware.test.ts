@@ -15,6 +15,7 @@ import {
     captureRawBodyVerify,
     createGitHubTasksWebhookHandler,
     DEFAULT_GITHUB_WEBHOOK_SUBPATH,
+    GitHubTasksWebhookServerExtension,
     registerGitHubTasksWebhookRoute,
 } from '../webhookMiddleware.js';
 
@@ -140,5 +141,52 @@ describe('BizApps Tasks GitHub Server Webhook Middleware', () => {
         expect(responseBody.ok).toBe(false);
         expect(responseBody.error).toBe('Internal webhook processing error');
         expect(responseBody.error).not.toContain('Sensitive database');
+    });
+
+    it('mounts GitHubTasksWebhookServerExtension via ApiRoute() and reports unhealthy when GITHUB_WEBHOOK_SECRET is missing', async () => {
+        const prevSecret = process.env.GITHUB_WEBHOOK_SECRET;
+        const prevBasePath = process.env.MJAPI_BASE_PATH;
+        try {
+            delete process.env.GITHUB_WEBHOOK_SECRET;
+            process.env.MJAPI_BASE_PATH = '/api';
+
+            const mountedPaths: string[] = [];
+            const fakeApp = {
+                post(path: string) {
+                    mountedPaths.push(path);
+                },
+            };
+
+            const ext = new GitHubTasksWebhookServerExtension();
+            const initRes = await ext.Initialize(
+                fakeApp as Parameters<GitHubTasksWebhookServerExtension['Initialize']>[0],
+                { Enabled: true, RootPath: '/webhooks/github/tasks' },
+            );
+            expect(initRes.Success).toBe(true);
+            expect(initRes.RegisteredRoutes).toEqual(['POST /api/webhooks/github/tasks']);
+            expect(mountedPaths).toEqual(['/api/webhooks/github/tasks']);
+
+            // Without GITHUB_WEBHOOK_SECRET, HealthCheck reports Healthy: false
+            const unhealthy = await ext.HealthCheck();
+            expect(unhealthy.Healthy).toBe(false);
+            expect(unhealthy.Details?.secretConfigured).toBe(false);
+
+            // With GITHUB_WEBHOOK_SECRET configured, HealthCheck reports Healthy: true
+            process.env.GITHUB_WEBHOOK_SECRET = 'configured-secret';
+            const healthy = await ext.HealthCheck();
+            expect(healthy.Healthy).toBe(true);
+            expect(healthy.Details?.secretConfigured).toBe(true);
+        } finally {
+            if (prevSecret === undefined) {
+                delete process.env.GITHUB_WEBHOOK_SECRET;
+            } else {
+                process.env.GITHUB_WEBHOOK_SECRET = prevSecret;
+            }
+            if (prevBasePath === undefined) {
+                delete process.env.MJAPI_BASE_PATH;
+            } else {
+                process.env.MJAPI_BASE_PATH = prevBasePath;
+            }
+        }
     });
 });

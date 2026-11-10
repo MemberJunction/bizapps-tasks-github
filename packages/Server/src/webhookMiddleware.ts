@@ -252,7 +252,9 @@ export class GitHubTasksWebhookServerExtension extends BaseServerExtension {
             ? (contextOrApp as { app: ExpressLikeWebhookApp }).app
             : (contextOrApp as ExpressLikeWebhookApp);
         const config = isContext ? (contextOrApp as ServerExtensionInitContext).config : legacyConfig;
-        const rootPath = config?.RootPath ?? ApiRoute(DEFAULT_GITHUB_WEBHOOK_SUBPATH);
+        const subpath = config?.RootPath?.trim() || DEFAULT_GITHUB_WEBHOOK_SUBPATH;
+        const normalizedSubpath = subpath.startsWith('/') ? subpath : `/${subpath}`;
+        const rootPath = ApiRoute(normalizedSubpath);
         const settings = (config?.Settings ?? {}) as Record<string, string | boolean | undefined>;
         const configuredUserEmail =
             typeof settings.WebhookUserEmail === 'string'
@@ -279,12 +281,13 @@ export class GitHubTasksWebhookServerExtension extends BaseServerExtension {
     }
 
     public async HealthCheck(): Promise<ExtensionHealthResult> {
+        const secretConfigured = Boolean(process.env.GITHUB_WEBHOOK_SECRET?.trim());
         return {
-            Healthy: this._mountedRoute != null,
+            Healthy: this._mountedRoute != null && secretConfigured,
             Name: GITHUB_TASKS_WEBHOOK_DRIVER_CLASS,
             Details: {
                 route: this._mountedRoute,
-                secretConfigured: Boolean(process.env.GITHUB_WEBHOOK_SECRET?.trim()),
+                secretConfigured,
             },
         };
     }

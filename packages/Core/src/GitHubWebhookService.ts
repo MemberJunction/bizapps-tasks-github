@@ -20,7 +20,12 @@ import type {
     SingleItemSyncResult,
 } from './types.js';
 
-export type SupportedGitHubWebhookEvent = 'issues' | 'pull_request' | 'pull_request_review';
+export type SupportedGitHubWebhookEvent =
+    | 'issues'
+    | 'pull_request'
+    | 'pull_request_review'
+    | 'check_suite'
+    | 'check_run';
 
 const MAX_TRACKED_DELIVERY_IDS = 5000;
 
@@ -81,6 +86,17 @@ interface WebhookReviewPayload {
     state?: string;
 }
 
+interface WebhookCheckPullRequestRef {
+    number?: number;
+}
+
+interface WebhookCheckPayload {
+    status?: string | null;
+    conclusion?: string | null;
+    head_sha?: string | null;
+    pull_requests?: WebhookCheckPullRequestRef[] | null;
+}
+
 interface WebhookEnvelopePayload {
     action?: string;
     repository?: {
@@ -90,6 +106,8 @@ interface WebhookEnvelopePayload {
     issue?: WebhookIssuePayload | null;
     pull_request?: WebhookPullRequestPayload | null;
     review?: WebhookReviewPayload | null;
+    check_suite?: WebhookCheckPayload | null;
+    check_run?: WebhookCheckPayload | null;
 }
 
 export interface HandleGitHubWebhookParams {
@@ -182,7 +200,13 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
         }
 
         const cleanEvent = params.eventName.trim();
-        if (cleanEvent !== 'issues' && cleanEvent !== 'pull_request' && cleanEvent !== 'pull_request_review') {
+        if (
+            cleanEvent !== 'issues'
+            && cleanEvent !== 'pull_request'
+            && cleanEvent !== 'pull_request_review'
+            && cleanEvent !== 'check_suite'
+            && cleanEvent !== 'check_run'
+        ) {
             this.recordDeliveryId(cleanDeliveryId);
             return {
                 status: 'ignored',
@@ -235,6 +259,10 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             };
         }
 
+        if (cleanEvent === 'check_suite' || cleanEvent === 'check_run') {
+            return this.handleCheckEvent(cleanEvent, parsed, repository, cleanDeliveryId, params.contextUser, md as IMetadataProvider & IRunViewProvider);
+        }
+
         const normalizedItem = this.extractNormalizedItem(cleanEvent, parsed);
         if (!normalizedItem) {
             return {
@@ -268,6 +296,74 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
         };
     }
 
+    private async handleCheckEvent(
+        eventName: 'check_suite' | 'check_run',
+        payload: WebhookEnvelopePayload,
+        repository: mjBizAppsTasksGitHubGitHubRepositoryEntity,
+        cleanDeliveryId: string,
+        contextUser: UserInfo,
+        provider: IMetadataProvider & IRunViewProvider,
+    ): Promise<HandleGitHubWebhookResult> {
+        const checkObj = eventName === 'check_suite' ? payload.check_suite : payload.check_run;
+        if (!checkObj) {
+            return {
+                status: 'validation_error',
+                reason: `Webhook payload missing required ${eventName} object`,
+            };
+        }
+
+        const status = (checkObj.status ?? '').toLowerCase();
+        const conclusion = (checkObj.conclusion ?? '').toLowerCase();
+        const action = (payload.action ?? '').toLowerCase();
+
+        let checksStatus: GitHubPullRequestChecksStatus = 'Pending';
+        if (status === 'completed' || action === 'completed') {
+            if (conclusion === 'success') {
+                checksStatus = 'Passing';
+            } else if (conclusion === 'neutral' || conclusion === 'skipped') {
+                checksStatus = 'Neutral';
+            } else if (
+                conclusion === 'failure'
+                || conclusion === 'timed_out'
+                || conclusion === 'cancelled'
+                || conclusion === 'action_required'
+                || conclusion === 'startup_failure'
+                || conclusion === 'stale'
+            ) {
+                checksStatus = 'Failing';
+            }
+        }
+
+        const prNumbers = (checkObj.pull_requests ?? [])
+            .map((p) => p.number)
+            .filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n > 0);
+        const headSha = typeof checkObj.head_sha === 'string' ? checkObj.head_sha : null;
+
+        const syncResult = await GitHubTaskSyncService.Instance.UpdatePullRequestChecksStatus({
+            repository,
+            prNumbers,
+            headSha,
+            checksStatus,
+            contextUser,
+            provider,
+        });
+
+        this.recordDeliveryId(cleanDeliveryId);
+
+        if (syncResult.action === 'skipped') {
+            return {
+                status: 'ignored',
+                reason: syncResult.reason ?? 'No matching pull request for check event',
+                syncResult,
+            };
+        }
+
+        return {
+            status: 'synced',
+            syncResult,
+        };
+    }
+
     private recordDeliveryId(deliveryId: string): void {
         if (!deliveryId) return;
         if (this._processedDeliveries.size >= MAX_TRACKED_DELIVERY_IDS) {
@@ -291,7 +387,7 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
     }
 
     private extractNormalizedItem(
-        eventName: SupportedGitHubWebhookEvent,
+        eventName: 'issues' | 'pull_request' | 'pull_request_review',
         payload: WebhookEnvelopePayload,
     ): NormalizedGitHubSyncItem | null {
         if (eventName === 'issues') {
