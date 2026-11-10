@@ -128,6 +128,7 @@ interface GitHubRestPullRequestJson {
 export class DefaultGitHubRestRepositoryFetcher implements IGitHubRepositoryFetcher {
     private static readonly MAX_PAGES = 20;
     private static readonly PAGE_SIZE = 100;
+    private static readonly REQUEST_TIMEOUT_MS = 10000;
 
     public async FetchRepositoryItems(
         owner: string,
@@ -240,7 +241,10 @@ export class DefaultGitHubRestRepositoryFetcher implements IGitHubRepositoryFetc
         const collected: T[] = [];
         for (let page = 1; page <= DefaultGitHubRestRepositoryFetcher.MAX_PAGES; page += 1) {
             const url = `${endpointUrl}?state=all&per_page=${DefaultGitHubRestRepositoryFetcher.PAGE_SIZE}&page=${page}`;
-            const res = await fetch(url, { headers });
+            const res = await fetch(url, {
+                headers,
+                signal: AbortSignal.timeout(DefaultGitHubRestRepositoryFetcher.REQUEST_TIMEOUT_MS),
+            });
             if (!res.ok) {
                 throw new Error(`GitHub REST API error fetching ${label} (page ${page}): HTTP ${res.status}`);
             }

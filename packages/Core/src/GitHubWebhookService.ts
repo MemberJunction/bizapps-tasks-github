@@ -70,14 +70,14 @@ interface GitHubRestReviewItem {
  * falls back to its bounded in-memory LRU state maps.
  */
 export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetcher {
+    private static readonly MAX_LIVE_STATE_PAGES = 3;
+    private static readonly REQUEST_TIMEOUT_MS = 4000;
+
     public constructor(private readonly _explicitToken?: string) {}
 
     private getAuthToken(): string {
         if (this._explicitToken !== undefined) {
             return this._explicitToken.trim();
-        }
-        if (process.env.VITEST === 'true' || process.env.NODE_ENV === 'test') {
-            return '';
         }
         return process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim() || '';
     }
@@ -106,9 +106,12 @@ export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetche
         const encodedSha = encodeURIComponent(headSha);
 
         const latestRunByName = new Map<string, { id: number; status: GitHubPullRequestChecksStatus }>();
-        for (let page = 1; page <= 10; page += 1) {
+        for (let page = 1; page <= DefaultGitHubRestLiveStateFetcher.MAX_LIVE_STATE_PAGES; page += 1) {
             const url = `https://api.github.com/repos/${encodedOwner}/${encodedRepo}/commits/${encodedSha}/check-runs?per_page=100&page=${page}`;
-            const response = await fetch(url, { headers });
+            const response = await fetch(url, {
+                headers,
+                signal: AbortSignal.timeout(DefaultGitHubRestLiveStateFetcher.REQUEST_TIMEOUT_MS),
+            });
             if (!response.ok) {
                 throw new Error(`GitHub REST GET ${url} failed with HTTP ${response.status}`);
             }
@@ -131,7 +134,10 @@ export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetche
         }
 
         const statusUrl = `https://api.github.com/repos/${encodedOwner}/${encodedRepo}/commits/${encodedSha}/status`;
-        const statusRes = await fetch(statusUrl, { headers });
+        const statusRes = await fetch(statusUrl, {
+            headers,
+            signal: AbortSignal.timeout(DefaultGitHubRestLiveStateFetcher.REQUEST_TIMEOUT_MS),
+        });
         if (!statusRes.ok) {
             throw new Error(`GitHub REST GET ${statusUrl} failed with HTTP ${statusRes.status}`);
         }
@@ -177,9 +183,12 @@ export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetche
         const encodedRepo = encodeURIComponent(repo);
 
         const reviewerDecisions = new Map<string, 'APPROVED' | 'CHANGES_REQUESTED'>();
-        for (let page = 1; page <= 10; page += 1) {
+        for (let page = 1; page <= DefaultGitHubRestLiveStateFetcher.MAX_LIVE_STATE_PAGES; page += 1) {
             const url = `https://api.github.com/repos/${encodedOwner}/${encodedRepo}/pulls/${pullNumber}/reviews?per_page=100&page=${page}`;
-            const response = await fetch(url, { headers });
+            const response = await fetch(url, {
+                headers,
+                signal: AbortSignal.timeout(DefaultGitHubRestLiveStateFetcher.REQUEST_TIMEOUT_MS),
+            });
             if (!response.ok) {
                 throw new Error(`GitHub REST GET ${url} failed with HTTP ${response.status}`);
             }

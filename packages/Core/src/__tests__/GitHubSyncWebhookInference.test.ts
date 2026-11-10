@@ -1,7 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
     EntityInfo,
     IMetadataProvider,
@@ -337,7 +337,12 @@ function buildTestHarness() {
 }
 
 describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookService', () => {
+    const savedGitHubToken = process.env.GITHUB_TOKEN;
+    const savedGhToken = process.env.GH_TOKEN;
+
     beforeEach(() => {
+        delete process.env.GITHUB_TOKEN;
+        delete process.env.GH_TOKEN;
         GitHubWebhookService.Instance.ClearProcessedDeliveries();
         GitHubTaskInferenceService.Instance.SetExtractor({
             ExtractPlanningSuggestions: async () => ({
@@ -359,6 +364,19 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
                 promptRunId: 'aaaaaaaa-aaaa-4aaa-8aaa-000000000001',
             }),
         });
+    });
+
+    afterEach(() => {
+        if (savedGitHubToken === undefined) {
+            delete process.env.GITHUB_TOKEN;
+        } else {
+            process.env.GITHUB_TOKEN = savedGitHubToken;
+        }
+        if (savedGhToken === undefined) {
+            delete process.env.GH_TOKEN;
+        } else {
+            process.env.GH_TOKEN = savedGhToken;
+        }
     });
 
     it('enforces ImportRule=AssignedOnly vs All and maps Primary + Reviewer TaskAssignments', async () => {
