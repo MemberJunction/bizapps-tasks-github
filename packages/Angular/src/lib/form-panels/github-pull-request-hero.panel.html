@@ -1,0 +1,102 @@
+<div class="gh-hero">
+    <div class="gh-hero__header">
+        <div class="gh-hero__identity">
+            <div class="gh-hero__avatar">
+                <i class="fa-solid fa-code-pull-request" aria-hidden="true"></i>
+            </div>
+            <div class="gh-hero__copy">
+                <div class="gh-hero__title-row">
+                    <h2 class="gh-hero__title">{{ PrNumberLabel }}: {{ Title }}</h2>
+                    <span
+                        class="gh-chip"
+                        [class.gh-chip--open]="State === 'open'"
+                        [class.gh-chip--merged]="State === 'merged'"
+                        [class.gh-chip--closed]="State === 'closed'"
+                        [class.gh-chip--draft]="State === 'draft'">
+                        @switch (State) {
+                            @case ('merged') {
+                                <i class="fa-solid fa-code-merge" aria-hidden="true"></i>
+                            }
+                            @case ('closed') {
+                                <i class="fa-solid fa-circle-xmark" aria-hidden="true"></i>
+                            }
+                            @case ('draft') {
+                                <i class="fa-solid fa-file-lines" aria-hidden="true"></i>
+                            }
+                            @default {
+                                <i class="fa-solid fa-circle-dot" aria-hidden="true"></i>
+                            }
+                        }
+                        {{ StateLabel }}
+                    </span>
+
+                    <span class="gh-chip gh-chip--branch" title="Branch Flow: Head → Base">
+                        <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+                        {{ BranchFlow }}
+                    </span>
+
+                    @if (ShortHeadSha) {
+                        <span class="gh-chip gh-chip--commit" title="Head commit SHA">
+                            <i class="fa-solid fa-code-commit" aria-hidden="true"></i>
+                            <code>{{ ShortHeadSha }}</code>
+                        </span>
+                    }
+                </div>
+
+                <div class="gh-hero__meta">
+                    <span class="gh-diff-summary" title="Diff additions, deletions, and changed files">
+                        <span class="gh-diff-add">+{{ Additions }}</span>
+                        <span class="gh-diff-sep">/</span>
+                        <span class="gh-diff-del">-{{ Deletions }}</span>
+                        <span class="gh-diff-files">({{ ChangedFiles }} {{ ChangedFiles === 1 ? 'file' : 'files' }})</span>
+                        <span class="gh-diff-bar-container" aria-hidden="true">
+                            <span class="gh-diff-bar-add" [style.width.%]="AddPercent"></span>
+                            <span class="gh-diff-bar-del" [style.width.%]="DelPercent"></span>
+                        </span>
+                    </span>
+
+                    @if (ChecksStatus) {
+                        <span
+                            class="gh-chip"
+                            [class.gh-chip--open]="ChecksStatus === 'Passing'"
+                            [class.gh-chip--closed]="ChecksStatus === 'Failing'">
+                            <i class="fa-solid" [class.fa-check]="ChecksStatus === 'Passing'" [class.fa-xmark]="ChecksStatus === 'Failing'" [class.fa-clock]="ChecksStatus === 'Pending'" aria-hidden="true"></i>
+                            Checks: {{ ChecksStatus }}
+                        </span>
+                    }
+
+                    @if (ReviewDecision) {
+                        <span class="gh-chip">
+                            <i class="fa-solid fa-user-check" aria-hidden="true"></i>
+                            Review: {{ ReviewDecision }}
+                        </span>
+                    }
+
+                    @for (task of LinkedTasks; track task.TaskID) {
+                        <span
+                            class="gh-chip gh-chip--interactive"
+                            (click)="NavigateToTask(task.TaskID)"
+                            title="Linked Work-Bus Task — click to view">
+                            <i class="fa-solid fa-link" aria-hidden="true"></i>
+                            Task: {{ task.TaskName }}
+                        </span>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="gh-hero__actions">
+            @if (HtmlUrl) {
+                <button
+                    type="button"
+                    class="gh-btn-external"
+                    (click)="OpenOnGitHub()"
+                    title="View Pull Request on GitHub.com">
+                    <i class="fa-brands fa-github" aria-hidden="true"></i>
+                    <span>View PR on GitHub</span>
+                    <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                </button>
+            }
+        </div>
+    </div>
+</div>

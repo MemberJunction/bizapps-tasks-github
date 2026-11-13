@@ -1,0 +1,239 @@
+<mj-collapsible-panel
+    SectionKey="linkedGitHubItems"
+    SectionName="Linked GitHub PRs, Issues & Repositories"
+    Icon="fa-brands fa-github"
+    [Form]="FormComponent"
+    [FormContext]="FormContext"
+    [BadgeCount]="TotalLinkedItemsCount"
+    [DefaultExpanded]="HasAnyLinkedItems">
+
+    @if (IsLoading) {
+        <div class="gh-loading-spinner" role="status" aria-live="polite">
+            <i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>
+            <span>Loading linked GitHub metadata…</span>
+        </div>
+    } @else if (!HasAnyLinkedItems) {
+        <div class="gh-empty-state">
+            <i class="fa-brands fa-github gh-empty-state__icon" aria-hidden="true"></i>
+            <p class="gh-empty-state__text">No GitHub pull requests, issues, or repositories linked to this task.</p>
+        </div>
+    } @else {
+        <div class="gh-links-container">
+            @if (LinkedPullRequests.length > 0) {
+                <div class="gh-links-section">
+                    <h4 class="gh-links-section-title">
+                        <i class="fa-solid fa-code-pull-request" aria-hidden="true"></i>
+                        <span>Linked Pull Requests ({{ LinkedPullRequests.length }})</span>
+                    </h4>
+
+                    <div class="gh-link-cards-grid">
+                        @for (pr of LinkedPullRequests; track pr.ID) {
+                            <div class="gh-link-card">
+                                <div class="gh-link-card__main">
+                                    <div class="gh-link-card__icon">
+                                        <i class="fa-solid fa-code-pull-request" aria-hidden="true"></i>
+                                    </div>
+                                    <div class="gh-link-card__details">
+                                        <a
+                                            class="gh-link-card__title"
+                                            (click)="OpenPr(pr)"
+                                            title="Open pull request record in MemberJunction">
+                                            @if (pr.Number != null) {
+                                                <strong>#{{ pr.Number }}</strong>:
+                                            }
+                                            {{ pr.Title }}
+                                        </a>
+
+                                        <div class="gh-link-card__meta">
+                                            <span
+                                                class="gh-chip"
+                                                [class.gh-chip--open]="pr.State === 'open'"
+                                                [class.gh-chip--merged]="pr.State === 'merged'"
+                                                [class.gh-chip--closed]="pr.State === 'closed'"
+                                                [class.gh-chip--draft]="pr.State === 'draft'">
+                                                {{ pr.StateLabel }}
+                                            </span>
+
+                                            <span class="gh-chip gh-chip--branch">
+                                                <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+                                                {{ pr.BranchFlow }}
+                                            </span>
+
+                                            <span class="gh-diff-summary">
+                                                <span class="gh-diff-add">+{{ pr.Additions }}</span>
+                                                <span class="gh-diff-sep">/</span>
+                                                <span class="gh-diff-del">-{{ pr.Deletions }}</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="gh-link-card__actions">
+                                    <button
+                                        type="button"
+                                        class="gh-btn-external"
+                                        (click)="OpenPr(pr)"
+                                        title="View in MemberJunction">
+                                        <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+                                        <span>View</span>
+                                    </button>
+
+                                    @if (pr.HtmlUrl) {
+                                        <button
+                                            type="button"
+                                            class="gh-btn-external"
+                                            (click)="OpenExternalUrl(pr.HtmlUrl)"
+                                            title="View Pull Request on GitHub.com">
+                                            <i class="fa-brands fa-github" aria-hidden="true"></i>
+                                            <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            @if (LinkedIssues.length > 0) {
+                <div class="gh-links-section">
+                    <h4 class="gh-links-section-title">
+                        <i class="fa-solid fa-circle-dot" aria-hidden="true"></i>
+                        <span>Linked Issues ({{ LinkedIssues.length }})</span>
+                    </h4>
+
+                    <div class="gh-link-cards-grid">
+                        @for (issue of LinkedIssues; track issue.ID) {
+                            <div class="gh-link-card">
+                                <div class="gh-link-card__main">
+                                    <div class="gh-link-card__icon">
+                                        <i class="fa-solid fa-circle-dot" aria-hidden="true"></i>
+                                    </div>
+                                    <div class="gh-link-card__details">
+                                        <a
+                                            class="gh-link-card__title"
+                                            (click)="OpenIssue(issue)"
+                                            title="Open issue record in MemberJunction">
+                                            @if (issue.Number != null) {
+                                                <strong>#{{ issue.Number }}</strong>:
+                                            }
+                                            {{ issue.Title }}
+                                        </a>
+
+                                        <div class="gh-link-card__meta">
+                                            <span
+                                                class="gh-chip"
+                                                [class.gh-chip--open]="issue.State === 'open'"
+                                                [class.gh-chip--closed]="issue.State === 'closed'">
+                                                {{ issue.StateLabel }}
+                                            </span>
+
+                                            <span class="gh-chip">
+                                                <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+                                                {{ issue.RepositoryName }}
+                                            </span>
+
+                                            @if (issue.Milestone) {
+                                                <span class="gh-chip">
+                                                    <i class="fa-regular fa-calendar-check" aria-hidden="true"></i>
+                                                    {{ issue.Milestone }}
+                                                </span>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="gh-link-card__actions">
+                                    <button
+                                        type="button"
+                                        class="gh-btn-external"
+                                        (click)="OpenIssue(issue)"
+                                        title="View in MemberJunction">
+                                        <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+                                        <span>View</span>
+                                    </button>
+
+                                    @if (issue.HtmlUrl) {
+                                        <button
+                                            type="button"
+                                            class="gh-btn-external"
+                                            (click)="OpenExternalUrl(issue.HtmlUrl)"
+                                            title="View Issue on GitHub.com">
+                                            <i class="fa-brands fa-github" aria-hidden="true"></i>
+                                            <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            @if (LinkedRepositories.length > 0) {
+                <div class="gh-links-section">
+                    <h4 class="gh-links-section-title">
+                        <i class="fa-brands fa-github" aria-hidden="true"></i>
+                        <span>Linked Repositories ({{ LinkedRepositories.length }})</span>
+                    </h4>
+
+                    <div class="gh-link-cards-grid">
+                        @for (repo of LinkedRepositories; track repo.ID) {
+                            <div class="gh-link-card">
+                                <div class="gh-link-card__main">
+                                    <div class="gh-link-card__icon">
+                                        <i class="fa-brands fa-github" aria-hidden="true"></i>
+                                    </div>
+                                    <div class="gh-link-card__details">
+                                        <a
+                                            class="gh-link-card__title"
+                                            (click)="OpenRepository(repo)"
+                                            title="Open repository record in MemberJunction">
+                                            {{ repo.FullName }}
+                                        </a>
+
+                                        <div class="gh-link-card__meta">
+                                            <span
+                                                class="gh-chip"
+                                                [class.gh-chip--open]="repo.IsTracked"
+                                                [class.gh-chip--closed]="!repo.IsTracked">
+                                                {{ repo.IsTracked ? 'Tracked' : 'Untracked' }}
+                                            </span>
+
+                                            <span class="gh-chip gh-chip--branch">
+                                                <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+                                                {{ repo.DefaultBranch }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="gh-link-card__actions">
+                                    <button
+                                        type="button"
+                                        class="gh-btn-external"
+                                        (click)="OpenRepository(repo)"
+                                        title="View in MemberJunction">
+                                        <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+                                        <span>View</span>
+                                    </button>
+
+                                    @if (repo.HtmlUrl) {
+                                        <button
+                                            type="button"
+                                            class="gh-btn-external"
+                                            (click)="OpenExternalUrl(repo.HtmlUrl)"
+                                            title="Open Repository on GitHub.com">
+                                            <i class="fa-brands fa-github" aria-hidden="true"></i>
+                                            <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</mj-collapsible-panel>
