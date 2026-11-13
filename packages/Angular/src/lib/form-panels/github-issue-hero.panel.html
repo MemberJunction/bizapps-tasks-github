@@ -1,0 +1,83 @@
+<div class="gh-hero">
+    <div class="gh-hero__header">
+        <div class="gh-hero__identity">
+            <div class="gh-hero__avatar">
+                <i class="fa-solid fa-circle-dot" aria-hidden="true"></i>
+            </div>
+            <div class="gh-hero__copy">
+                <div class="gh-hero__title-row">
+                    <h2 class="gh-hero__title">{{ IssueNumberLabel }}: {{ Title }}</h2>
+                    <span
+                        class="gh-chip"
+                        [class.gh-chip--open]="State === 'open'"
+                        [class.gh-chip--closed]="State === 'closed'">
+                        <i class="fa-solid" [class.fa-circle-dot]="State === 'open'" [class.fa-circle-check]="State === 'closed'" aria-hidden="true"></i>
+                        {{ StateLabel }}
+                    </span>
+
+                    @if (HasRepositoryLink) {
+                        <span
+                            class="gh-chip gh-chip--interactive"
+                            (click)="NavigateToRepository()"
+                            title="Repository — click to view">
+                            <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+                            {{ RepositoryName }}
+                        </span>
+                    } @else {
+                        <span class="gh-chip" title="Repository">
+                            <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+                            {{ RepositoryName }}
+                        </span>
+                    }
+
+                    @if (AuthorLogin) {
+                        <span class="gh-chip" title="Issue Author">
+                            <i class="fa-regular fa-user" aria-hidden="true"></i>
+                            @{{ AuthorLogin }}
+                        </span>
+                    }
+                </div>
+
+                <div class="gh-hero__meta">
+                    @if (Milestone) {
+                        <span class="gh-chip" title="Milestone">
+                            <i class="fa-regular fa-calendar-check" aria-hidden="true"></i>
+                            Milestone: {{ Milestone }}
+                        </span>
+                    }
+
+                    @for (label of Labels; track label) {
+                        <span class="gh-chip" title="GitHub Label">
+                            <i class="fa-solid fa-tag" aria-hidden="true"></i>
+                            {{ label }}
+                        </span>
+                    }
+
+                    @for (task of LinkedTasks; track task.TaskID) {
+                        <span
+                            class="gh-chip gh-chip--interactive"
+                            (click)="NavigateToTask(task.TaskID)"
+                            title="Linked Work-Bus Task — click to view">
+                            <i class="fa-solid fa-link" aria-hidden="true"></i>
+                            Task: {{ task.TaskName }}
+                        </span>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="gh-hero__actions">
+            @if (HtmlUrl) {
+                <button
+                    type="button"
+                    class="gh-btn-external"
+                    (click)="OpenOnGitHub()"
+                    title="View Issue on GitHub.com">
+                    <i class="fa-brands fa-github" aria-hidden="true"></i>
+                    <span>View Issue on GitHub</span>
+                    <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                </button>
+            }
+        </div>
+    </div>
+</div>

@@ -1,0 +1,90 @@
+<div class="gh-hero">
+    <div class="gh-hero__header">
+        <div class="gh-hero__identity">
+            <div class="gh-hero__avatar">
+                <i class="fa-brands fa-github" aria-hidden="true"></i>
+            </div>
+            <div class="gh-hero__copy">
+                <div class="gh-hero__title-row">
+                    <h2 class="gh-hero__title">{{ RepositoryFullName }}</h2>
+                    <span
+                        class="gh-chip"
+                        [class.gh-chip--open]="IsTracked"
+                        [class.gh-chip--closed]="!IsTracked">
+                        <i class="fa-solid" [class.fa-circle-check]="IsTracked" [class.fa-circle-pause]="!IsTracked" aria-hidden="true"></i>
+                        {{ IsTracked ? 'Tracked' : 'Untracked' }}
+                    </span>
+                    <span class="gh-chip gh-chip--branch" title="Default branch">
+                        <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+                        {{ DefaultBranch }}
+                    </span>
+                    <span class="gh-chip" title="Import Rule">
+                        <i class="fa-solid fa-filter" aria-hidden="true"></i>
+                        {{ ImportRuleLabel }}
+                    </span>
+                </div>
+                <div class="gh-hero__meta">
+                    @if (HasDeliveryPolicy) {
+                        <span
+                            class="gh-chip gh-chip--interactive"
+                            (click)="NavigateToDeliveryPolicy()"
+                            title="Linked Delivery Policy — click to view">
+                            <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+                            Delivery Policy Linked
+                        </span>
+                    } @else {
+                        <span>No Delivery Policy Linked</span>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="gh-hero__actions">
+            @if (GitHubUrl) {
+                <button
+                    type="button"
+                    class="gh-btn-external"
+                    (click)="OpenOnGitHub()"
+                    title="Open repository on GitHub.com">
+                    <i class="fa-brands fa-github" aria-hidden="true"></i>
+                    <span>Open on GitHub</span>
+                    <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                </button>
+            }
+        </div>
+    </div>
+
+    <div class="gh-hero__stats">
+        <div class="gh-stat-item">
+            <span class="gh-stat-label">Open Pull Requests</span>
+            <span class="gh-stat-value">
+                @if (IsLoadingCounts) {
+                    <i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>
+                } @else {
+                    <i class="fa-solid fa-code-pull-request" aria-hidden="true"></i>
+                    <span [class.gh-stat-value--success]="OpenPrCount > 0">{{ OpenPrCount }}</span>
+                }
+            </span>
+        </div>
+
+        <div class="gh-stat-item">
+            <span class="gh-stat-label">Open Issues</span>
+            <span class="gh-stat-value">
+                @if (IsLoadingCounts) {
+                    <i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>
+                } @else {
+                    <i class="fa-solid fa-circle-dot" aria-hidden="true"></i>
+                    <span [class.gh-stat-value--warning]="OpenIssueCount > 0">{{ OpenIssueCount }}</span>
+                }
+            </span>
+        </div>
+
+        <div class="gh-stat-item">
+            <span class="gh-stat-label">Default Branch</span>
+            <span class="gh-stat-value">
+                <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+                <code>{{ DefaultBranch }}</code>
+            </span>
+        </div>
+    </div>
+</div>
