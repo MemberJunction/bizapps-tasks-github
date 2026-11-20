@@ -244,6 +244,14 @@ Deployed with full parity across **SQL Server** (`migrations/` & `teardown/`) an
 | `GitHubIssueTask` | `MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks` | Cross-schema IS-A child of `__mj_BizAppsTasks.Task` (`IssueNumber`, `GitHubIssueID`, `IssueState`, `StateReason`, `MilestoneTitle`, `MilestoneDueAt`, `BodyHash`, `HtmlUrl`) |
 | `GitHubPullRequestTask` | `MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks` | Cross-schema IS-A child of `__mj_BizAppsTasks.Task` (`PRNumber`, `GitHubPRID`, `PRState`, `IsDraft`, `HeadBranch`, `BaseBranch`, `HeadSHA`, `MergeCommitSHA`, `ReviewDecision`, `ChecksStatus`, `Additions`, `Deletions`, `HtmlUrl`) |
 
+### `RelatedRecordCollection` & Transactional Persistence (MJ 6.3+)
+
+- **Read-Only Repository Collections**: `GitHubRepository` declares two explicit, database-sourced, read-only `RelatedRecordCollection` companions in `metadata/entity-relationships/`:
+  - `repo.IssueTasks` (`MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks`, `RepositoryID`, `OrderBy: "Number DESC"`, `ReadOnly: true`, `OnRemove: "refuse"`)
+  - `repo.PullRequestTasks` (`MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks`, `RepositoryID`, `OrderBy: "Number DESC"`, `ReadOnly: true`, `OnRemove: "refuse"`)
+  - Read-only enforcement guarantees repository children are always reconciled through `GitHubTaskSyncService` rather than mutated out-of-band, while panels such as `GitHubRepositoryOverviewPanel` can reuse loaded collections without extra queries.
+- **Single-Save IS-A Leaf & Atomic Transactions**: `GitHubTaskSyncService` persists each Issue or Pull Request directly on its IS-A leaf entity (`GitHubIssueTask` / `GitHubPullRequestTask`) and reconciles `TaskAssignment` rows (using the parent `Task`'s `Assignments` companion when registered) inside a single provider-arbitrated `BeginEntityTransaction()` scope. Multi-PR `UpdatePullRequestChecksStatus` updates and `GitHubTaskInferenceService` suggestion supersede/create writes also run atomically inside `BeginEntityTransaction()`, eliminating manual orphan cleanup on failure or unique-key collision.
+
 ---
 
 ## Developer Setup & CI Guards

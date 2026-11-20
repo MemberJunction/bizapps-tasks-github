@@ -1,0 +1,28 @@
+[
+  {
+    "_comments": [
+      "Declares Git Hub Repositories -> Git Hub Issue Tasks as a READ-ONLY related-record collection (MJ 6.2+).",
+      "RelatedEntity and RelatedEntityJoinField are read from the EntityRelationship row columns and deliberately omitted from the JSON blob.",
+      "ReadOnly: true and OnRemove: refuse enforce that issue tasks are synchronized through GitHubTaskSyncService rather than mutated through the repository collection."
+    ],
+    "fields": {
+      "RelatedRecordCollection": "@file:github-repository-issue-tasks-collection.json"
+    },
+    "primaryKey": {
+      "ID": "@lookup:MJ: Entity Relationships.Entity=MJ_BizApps_Tasks_GitHub: Git Hub Repositories&RelatedEntity=MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks&RelatedEntityJoinField=RepositoryID"
+    }
+  },
+  {
+    "_comments": [
+      "Declares Git Hub Repositories -> Git Hub Pull Request Tasks as a READ-ONLY related-record collection (MJ 6.2+).",
+      "RelatedEntity and RelatedEntityJoinField are read from the EntityRelationship row columns and deliberately omitted from the JSON blob.",
+      "ReadOnly: true and OnRemove: refuse enforce that pull request tasks are synchronized through GitHubTaskSyncService rather than mutated through the repository collection."
+    ],
+    "fields": {
+      "RelatedRecordCollection": "@file:github-repository-pull-request-tasks-collection.json"
+    },
+    "primaryKey": {
+      "ID": "@lookup:MJ: Entity Relationships.Entity=MJ_BizApps_Tasks_GitHub: Git Hub Repositories&RelatedEntity=MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks&RelatedEntityJoinField=RepositoryID"
+    }
+  }
+]

@@ -9,9 +9,9 @@ import {
 import { FormsModule } from '@angular/forms';
 import { Subject } from 'rxjs';
 import { debounceTime, filter, takeUntil } from 'rxjs/operators';
-import { BaseEntity, LogError, RunView, type BaseEntityEvent, type RunViewParams } from '@memberjunction/core';
+import { BaseEntity, LogError, RunView, type BaseEntityEvent, type RunViewParams, type UserInfo } from '@memberjunction/core';
 import { UserInfoEngine, type ResourceData } from '@memberjunction/core-entities';
-import { IsValidUUID, MJEventType, MJGlobal, RegisterClass, UUIDsEqual, type MJEvent } from '@memberjunction/global';
+import { EscapeSQLString, IsValidUUID, MJEventType, MJGlobal, RegisterClass, UUIDsEqual, type MJEvent } from '@memberjunction/global';
 import { GraphQLActionClient, GraphQLDataProvider } from '@memberjunction/graphql-dataprovider';
 import { BaseResourceComponent } from '@memberjunction/ng-shared';
 import { SharedGenericModule } from '@memberjunction/ng-shared-generic';
@@ -37,6 +37,7 @@ import {
     BuildTrackedRepositoryCards,
     BuildWebhookDeliveryRows,
     FilterTrackedRepositoryCards,
+    FormatGitHubSyncSummaryMessage,
     ParseGitHubTasksAdminTab,
     ValidateGitHubUsername,
 } from '../../tasks-github-ui.helpers.js';
@@ -80,13 +81,6 @@ interface DelegatedCredentialRow {
     ID: string;
     Name?: string | null;
     IsActive?: boolean | null;
-}
-
-interface ParsedSyncSummaryJson {
-    repositoriesSynced?: number;
-    created?: number;
-    updated?: number;
-    skipped?: number;
 }
 
 const LIVE_ENTITIES: readonly string[] = [
@@ -249,11 +243,6 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
 
             const batchQueries: RunViewParams[] = [
                 {
-                    EntityName: PEOPLE_ENTITY_NAME,
-                    Fields: ['ID', 'FirstName', 'LastName', 'Email', 'LinkedUserID', 'Status'],
-                    ResultType: 'simple',
-                },
-                {
                     EntityName: GITHUB_IDENTITIES_ENTITY_NAME,
                     OrderBy: '__mj_UpdatedAt DESC',
                     ResultType: 'simple',
@@ -336,17 +325,15 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
                 this.resolveDelegatedOAuthCredentialId(rv),
             ]);
 
-            const peopleRows = batchResults[0]?.Success
-                ? ((batchResults[0].Results as PersonIdentityRecordInput[] | undefined) ?? [])
+            const peopleRows = await this.loadCurrentUserPersonRows(rv, currentUser, resolvedPersonId);
+            const identityRows = batchResults[0]?.Success
+                ? ((batchResults[0].Results as GitHubIdentityRecordInput[] | undefined) ?? [])
                 : [];
-            const identityRows = batchResults[1]?.Success
-                ? ((batchResults[1].Results as GitHubIdentityRecordInput[] | undefined) ?? [])
+            const repoRows = batchResults[1]?.Success
+                ? ((batchResults[1].Results as GitHubRepositoryCardInput[] | undefined) ?? [])
                 : [];
-            const repoRows = batchResults[2]?.Success
-                ? ((batchResults[2].Results as GitHubRepositoryCardInput[] | undefined) ?? [])
-                : [];
-            const entityMapRows = batchResults[3]?.Success
-                ? ((batchResults[3].Results as CompanyIntegrationEntityMapSummaryInput[] | undefined) ?? [])
+            const entityMapRows = batchResults[2]?.Success
+                ? ((batchResults[2].Results as CompanyIntegrationEntityMapSummaryInput[] | undefined) ?? [])
                 : [];
 
             const companyIntegrationRows =
@@ -725,18 +712,46 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
     }
 
     private formatSyncSummaryMessage(scopeLabel: string, summaryJson: string | null): string {
-        if (!summaryJson || !summaryJson.trim()) {
-            return `Synchronized GitHub issues and pull requests for ${scopeLabel}.`;
+        return FormatGitHubSyncSummaryMessage(scopeLabel, summaryJson);
+    }
+
+    private async loadCurrentUserPersonRows(
+        rv: RunView,
+        currentUser: UserInfo | null | undefined,
+        resolvedPersonId: string | null,
+    ): Promise<PersonIdentityRecordInput[]> {
+        const clauses: string[] = [];
+        if (resolvedPersonId && IsValidUUID(resolvedPersonId)) {
+            clauses.push(`ID = '${resolvedPersonId.trim()}'`);
         }
-        try {
-            const parsed: ParsedSyncSummaryJson = JSON.parse(summaryJson);
-            const created = typeof parsed.created === 'number' ? parsed.created : 0;
-            const updated = typeof parsed.updated === 'number' ? parsed.updated : 0;
-            const skipped = typeof parsed.skipped === 'number' ? parsed.skipped : 0;
-            return `Synchronized ${scopeLabel}: ${created} created, ${updated} updated, ${skipped} skipped.`;
-        } catch {
-            return `Synchronized GitHub issues and pull requests for ${scopeLabel}.`;
+        const linkedRecordId =
+            currentUser?.LinkedEntityRecordID != null ? String(currentUser.LinkedEntityRecordID).trim() : '';
+        if (linkedRecordId && IsValidUUID(linkedRecordId)) {
+            clauses.push(`ID = '${linkedRecordId}'`);
         }
+        const userId = (currentUser?.ID ?? '').trim();
+        if (userId && IsValidUUID(userId)) {
+            clauses.push(`LinkedUserID = '${userId}'`);
+        }
+        const email = (currentUser?.Email ?? '').trim();
+        if (email) {
+            clauses.push(`Email = '${EscapeSQLString(email)}'`);
+        }
+        if (clauses.length === 0) {
+            return [];
+        }
+        const uniqueClauses = Array.from(new Set(clauses));
+        const res = await rv.RunView<PersonIdentityRecordInput>(
+            {
+                EntityName: PEOPLE_ENTITY_NAME,
+                ExtraFilter: uniqueClauses.join(' OR '),
+                Fields: ['ID', 'FirstName', 'LastName', 'Email', 'LinkedUserID', 'Status'],
+                MaxRows: 5,
+                ResultType: 'simple',
+            },
+            currentUser ?? undefined,
+        );
+        return res.Success && Array.isArray(res.Results) ? res.Results : [];
     }
 
     private resolveWebhookDeliveryEntityName(): string | null {

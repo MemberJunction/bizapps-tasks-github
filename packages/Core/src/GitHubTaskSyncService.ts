@@ -1,15 +1,17 @@
 import {
+    BaseEntity,
+    EntityCompanion,
     IMetadataProvider,
     IRunViewProvider,
     LogError,
     Metadata,
+    RelatedRecordCollection,
     RunView,
     UserInfo,
 } from '@memberjunction/core';
-import { BaseSingleton, EscapeSQLString, UUIDsEqual } from '@memberjunction/global';
+import { BaseSingleton, EscapeSQLString, GetGlobalObjectStore, UUIDsEqual } from '@memberjunction/global';
 import type {
     mjBizAppsTasksTaskAssignmentEntity,
-    mjBizAppsTasksTaskEntity,
     mjBizAppsTasksTaskRoleEntity,
     mjBizAppsTasksTaskTypeEntity,
     mjBizAppsTasksTaskTypeStatusEntity,
@@ -24,6 +26,7 @@ import {
     ConnectorGitHubMirrorRepositoryFetcher,
     HasActiveGitHubConnectorMirror,
 } from './ConnectorGitHubMirrorRepositoryFetcher.js';
+import { RunWithEntityTransaction } from './entity-transaction.js';
 import { GitHubFieldOwnershipPolicy } from './GitHubFieldOwnershipPolicy.js';
 import { GitHubTaskInferenceService, TASKS_ENTITY_NAME } from './GitHubTaskInferenceService.js';
 import { ResolveGitHubVaultAuth } from './GitHubVaultAuthResolver.js';
@@ -52,6 +55,42 @@ export const TASK_ROLES_ENTITY = 'MJ_BizApps_Tasks: Task Roles';
 export const PEOPLE_ENTITY = 'MJ_BizApps_Common: People';
 
 const GITHUB_ASSIGNMENT_NOTE_PREFIX = 'Synced from GitHub (@';
+
+class LeafEntitySaveError extends Error {
+    public constructor(message: string) {
+        super(message);
+        this.name = 'LeafEntitySaveError';
+    }
+}
+
+interface CompanionHostEntity {
+    readonly ISAParent?: BaseEntity | null;
+    GetCompanion?: <TCompanion extends EntityCompanion = EntityCompanion>(name: string) => TCompanion | undefined;
+    Save(): Promise<boolean>;
+    LatestResult?: { CompleteMessage?: string } | null;
+}
+
+interface ResolvedAssignmentsCompanion {
+    owner: CompanionHostEntity;
+    collection: RelatedRecordCollection<mjBizAppsTasksTaskAssignmentEntity>;
+}
+
+function resolveAssignmentsCompanion(entity: CompanionHostEntity): ResolvedAssignmentsCompanion | null {
+    if (typeof entity.GetCompanion === 'function') {
+        const direct = entity.GetCompanion<RelatedRecordCollection<mjBizAppsTasksTaskAssignmentEntity>>('Assignments');
+        if (direct && !direct.IsReadOnly) {
+            return { owner: entity, collection: direct };
+        }
+    }
+    const parent = entity.ISAParent;
+    if (parent && typeof parent.GetCompanion === 'function') {
+        const fromParent = parent.GetCompanion<RelatedRecordCollection<mjBizAppsTasksTaskAssignmentEntity>>('Assignments');
+        if (fromParent && !fromParent.IsReadOnly) {
+            return { owner: parent, collection: fromParent };
+        }
+    }
+    return null;
+}
 
 interface SyncReferenceContext {
     tasksEntityId: string;
@@ -380,12 +419,17 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
     private readonly _defaultFetcher = new DefaultGitHubRestRepositoryFetcher();
     private readonly _itemLocks = new Map<string, Promise<void>>();
 
-    public constructor() {
+    protected constructor() {
         super();
     }
 
     public static get Instance(): GitHubTaskSyncService {
-        return GitHubTaskSyncService.getInstance<GitHubTaskSyncService>();
+        const g = GetGlobalObjectStore();
+        const key = '___SINGLETON__GitHubTaskSyncService';
+        if (g && g[key]) {
+            return g[key] as GitHubTaskSyncService;
+        }
+        return new GitHubTaskSyncService();
     }
 
     public SetRepositoryFetcher(fetcher: IGitHubRepositoryFetcher): void {
@@ -680,93 +724,92 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         }
 
         const isNew = existingExt == null;
-        const task = await md.GetEntityObject<mjBizAppsTasksTaskEntity>(TASKS_ENTITY_NAME, contextUser);
-        if (isNew) {
-            task.NewRecord();
-            task.TypeID = refContext.issueTaskTypeId;
-            task.Priority = 'Medium';
-        } else {
-            const loaded = await task.Load(existingExt.ID);
-            if (!loaded) {
-                throw new Error(`Failed loading base Task '${existingExt.ID}' for GitHub issue #${issue.number}`);
-            }
-        }
-
-        const typeStatusCode = GitHubFieldOwnershipPolicy.MapIssueTypeStatusCode(issue);
-        const preservedFactoryStatus = !isNew
-            && issue.state === 'open'
-            && this.isReadyForFactoryStatus(task.TaskTypeStatusID, refContext.issueStatusesByCode);
-
-        const effectiveStatusCode = preservedFactoryStatus ? 'READY_FOR_FACTORY' : typeStatusCode;
-        const typeStatusId = refContext.issueStatusesByCode.get(effectiveStatusCode) ?? null;
-        const coreStatus = GitHubFieldOwnershipPolicy.MapTypeStatusCodeToCoreStatus(effectiveStatusCode);
-
-        // Pull-only GitHub-owned fields; Tasks-owned planning fields (Priority, DueAt, HoursEstimated, ParentID, CategoryID) are NEVER overwritten!
-        task.Name = issue.title;
-        task.Description = issue.body ?? null;
-        task.Status = coreStatus;
-        task.TaskTypeStatusID = typeStatusId;
-        if (coreStatus === 'Completed' && !task.CompletedAt) {
-            task.CompletedAt = new Date();
-        } else if (coreStatus !== 'Completed' && coreStatus !== 'Cancelled') {
-            task.CompletedAt = null;
-        }
-
-        const taskSaved = await task.Save();
-        if (!taskSaved) {
-            throw new Error(`Failed saving Task for GitHub issue #${issue.number}: ${task.LatestResult?.CompleteMessage ?? 'save failed'}`);
-        }
-
-        // Load the IS-A child row (auto-provisioned on save by Tasks SubtypeSelector AutoEnsureOnSave: true)
-        const issueExt = await md.GetEntityObject<mjBizAppsTasksGitHubGitHubIssueTaskEntity>(
-            GITHUB_ISSUE_TASKS_ENTITY,
-            contextUser,
-        );
-        const extLoaded = await issueExt.Load(task.ID);
-        if (!extLoaded) {
-            issueExt.NewRecord();
-            issueExt.ID = task.ID;
-        }
-
         const newBodyHash = GitHubFieldOwnershipPolicy.ComputeBodyHash(issue.title, issue.body);
-        const previousBodyHash = issueExt.BodyHash;
-        const bodyChanged = isNew || previousBodyHash !== newBodyHash;
         const milestoneDate = this.parseOptionalDate(issue.milestoneDueAt);
 
-        issueExt.RepositoryID = repository.ID;
-        issueExt.Number = issue.number;
-        issueExt.NodeID = issue.nodeId;
-        issueExt.HtmlURL = issue.htmlUrl;
-        issueExt.State = issue.state;
-        issueExt.StateReason = issue.stateReason ?? null;
-        issueExt.Labels = issue.labels ? JSON.stringify(issue.labels) : null;
-        issueExt.Milestone = issue.milestoneTitle ?? null;
-        issueExt.MilestoneDueAt = milestoneDate;
-        issueExt.AuthorLogin = issue.authorLogin ?? null;
-        issueExt.BodyHash = newBodyHash;
-        issueExt.GitHubUpdatedAt = incomingUpdatedAt ?? existingUpdatedAt;
-        issueExt.LastSyncedAt = new Date();
-
-        const extSaved = await issueExt.Save();
-        if (!extSaved) {
-            if (isNew && !isRetryAfterCollision) {
-                // Recover cleanly from cross-process UX_GitHubIssueTask_Repo_Number collision:
-                // In MJ, deleting an IS-A child (issueExt.Delete()) deletes both the child row and the parent Task row.
-                if (extLoaded) {
-                    const extDeleted = await issueExt.Delete();
-                    if (!extDeleted) {
-                        const delErr = `Failed deleting orphan GitHubIssueTask '${issueExt.ID}' after collision on #${issue.number}: ${issueExt.LatestResult?.CompleteMessage ?? 'delete failed'}`;
-                        LogError(delErr);
-                        throw new Error(delErr);
-                    }
+        let issueExt: mjBizAppsTasksGitHubGitHubIssueTaskEntity;
+        let bodyChanged: boolean;
+        try {
+            const persisted = await RunWithEntityTransaction(md, async () => {
+                const leaf = await md.GetEntityObject<mjBizAppsTasksGitHubGitHubIssueTaskEntity>(
+                    GITHUB_ISSUE_TASKS_ENTITY,
+                    contextUser,
+                );
+                if (isNew) {
+                    leaf.NewRecord();
+                    leaf.TypeID = refContext.issueTaskTypeId;
+                    leaf.Priority = 'Medium';
                 } else {
-                    const orphanDeleted = await task.Delete();
-                    if (!orphanDeleted) {
-                        const delErr = `Failed deleting orphan Task '${task.ID}' after GitHubIssueTask collision on #${issue.number}: ${task.LatestResult?.CompleteMessage ?? 'delete failed'}`;
-                        LogError(delErr);
-                        throw new Error(delErr);
+                    const loaded = await leaf.Load(existingExt.ID);
+                    if (!loaded) {
+                        throw new Error(`Failed loading GitHubIssueTask '${existingExt.ID}' for GitHub issue #${issue.number}`);
                     }
                 }
+
+                const typeStatusCode = GitHubFieldOwnershipPolicy.MapIssueTypeStatusCode(issue);
+                const preservedFactoryStatus = !isNew
+                    && issue.state === 'open'
+                    && this.isReadyForFactoryStatus(leaf.TaskTypeStatusID, refContext.issueStatusesByCode);
+
+                const effectiveStatusCode = preservedFactoryStatus ? 'READY_FOR_FACTORY' : typeStatusCode;
+                const typeStatusId = refContext.issueStatusesByCode.get(effectiveStatusCode) ?? null;
+                const coreStatus = GitHubFieldOwnershipPolicy.MapTypeStatusCodeToCoreStatus(effectiveStatusCode);
+
+                // Pull-only GitHub-owned fields; Tasks-owned planning fields (Priority, DueAt, HoursEstimated, ParentID, CategoryID) are NEVER overwritten!
+                leaf.Name = issue.title;
+                leaf.Description = issue.body ?? null;
+                leaf.Status = coreStatus;
+                leaf.TaskTypeStatusID = typeStatusId;
+                if (coreStatus === 'Completed' && !leaf.CompletedAt) {
+                    leaf.CompletedAt = new Date();
+                } else if (coreStatus !== 'Completed' && coreStatus !== 'Cancelled') {
+                    leaf.CompletedAt = null;
+                }
+
+                const previousBodyHash = leaf.BodyHash;
+                const localBodyChanged = isNew || previousBodyHash !== newBodyHash;
+
+                leaf.RepositoryID = repository.ID;
+                leaf.Number = issue.number;
+                leaf.NodeID = issue.nodeId;
+                leaf.HtmlURL = issue.htmlUrl;
+                leaf.State = issue.state;
+                leaf.StateReason = issue.stateReason ?? null;
+                leaf.Labels = issue.labels ? JSON.stringify(issue.labels) : null;
+                leaf.Milestone = issue.milestoneTitle ?? null;
+                leaf.MilestoneDueAt = milestoneDate;
+                leaf.AuthorLogin = issue.authorLogin ?? null;
+                leaf.BodyHash = newBodyHash;
+                leaf.GitHubUpdatedAt = incomingUpdatedAt ?? existingUpdatedAt;
+                leaf.LastSyncedAt = new Date();
+
+                const saved = await leaf.Save();
+                if (!saved) {
+                    throw new LeafEntitySaveError(
+                        `Failed saving GitHubIssueTask for #${issue.number}: ${leaf.LatestResult?.CompleteMessage ?? 'save failed'}`,
+                    );
+                }
+
+                await this.reconcileTaskAssignments(
+                    leaf,
+                    isNew,
+                    mappedPrimaryPeople,
+                    [],
+                    refContext,
+                    contextUser,
+                    md,
+                    rv,
+                );
+
+                return { leaf, bodyChanged: localBodyChanged };
+            });
+
+            issueExt = persisted.leaf;
+            bodyChanged = persisted.bodyChanged;
+        } catch (err) {
+            if (err instanceof LeafEntitySaveError && isNew && !isRetryAfterCollision) {
+                // Transaction has already rolled back cleanly; check for a concurrent cross-process
+                // insert winner on UX_GitHubIssueTask_Repo_Number and re-sync as an update.
                 const collided = await this.findExistingIssueExtension(
                     repository.ID,
                     issue.number,
@@ -789,9 +832,9 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
                     );
                 }
             }
-            const errMsg = `Failed saving GitHubIssueTask extension for #${issue.number}: ${issueExt.LatestResult?.CompleteMessage ?? 'save failed'}`;
+            const errMsg = err instanceof Error ? err.message : String(err);
             LogError(errMsg);
-            throw new Error(errMsg);
+            throw err;
         }
 
         if (preloaded) {
@@ -801,21 +844,11 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
             }
         }
 
-        await this.reconcileTaskAssignments(
-            task.ID,
-            mappedPrimaryPeople,
-            [],
-            refContext,
-            contextUser,
-            md,
-            rv,
-        );
-
         let supersededDueAtSuggestions = 0;
         if (milestoneDate != null) {
             supersededDueAtSuggestions = await GitHubTaskInferenceService.Instance.SupersedePendingSuggestionsForField(
                 refContext.tasksEntityId,
-                task.ID,
+                issueExt.ID,
                 'DueAt',
                 contextUser,
                 md,
@@ -825,7 +858,7 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
 
         let inferredSuggestionsCreated = 0;
         const inferenceOptions = {
-            task,
+            task: issueExt,
             repositoryId: repository.ID,
             repositoryFullName: `${repository.Owner}/${repository.Name}`,
             itemKind: 'issue' as const,
@@ -855,7 +888,7 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
 
         return {
             action: isNew ? 'created' : 'updated',
-            taskId: task.ID,
+            taskId: issueExt.ID,
             bodyChanged,
             supersededDueAtSuggestions,
             inferredSuggestionsCreated,
@@ -941,59 +974,11 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         }
 
         const isNew = existingExt == null;
-        const task = await md.GetEntityObject<mjBizAppsTasksTaskEntity>(TASKS_ENTITY_NAME, contextUser);
-        if (isNew) {
-            task.NewRecord();
-            task.TypeID = refContext.prTaskTypeId;
-            task.Priority = 'High';
-        } else {
-            const loaded = await task.Load(existingExt.ID);
-            if (!loaded) {
-                throw new Error(`Failed loading base Task '${existingExt.ID}' for GitHub PR #${pr.number}`);
-            }
-        }
-
-        const effectiveReviewDecision =
-            pr.reviewDecision !== undefined ? pr.reviewDecision : (existingExt?.ReviewDecision ?? null);
-        const typeStatusCode = GitHubFieldOwnershipPolicy.MapPullRequestTypeStatusCode({
-            ...pr,
-            reviewDecision: effectiveReviewDecision,
-        });
-        const preservedFactoryStatus = !isNew
-            && pr.state === 'open'
-            && this.isReadyForFactoryStatus(task.TaskTypeStatusID, refContext.prStatusesByCode);
-
-        const effectiveStatusCode = preservedFactoryStatus ? 'READY_FOR_FACTORY' : typeStatusCode;
-        const typeStatusId = refContext.prStatusesByCode.get(effectiveStatusCode) ?? null;
-        const coreStatus = GitHubFieldOwnershipPolicy.MapTypeStatusCodeToCoreStatus(effectiveStatusCode);
-
-        task.Name = pr.title;
-        task.Description = pr.body ?? null;
-        task.Status = coreStatus;
-        task.TaskTypeStatusID = typeStatusId;
+        const newBodyHash = GitHubFieldOwnershipPolicy.ComputeBodyHash(pr.title, pr.body);
+        const milestoneDate = this.parseOptionalDate(pr.milestoneDueAt);
         const mergedDate = this.parseOptionalDate(pr.mergedAt);
-        if (coreStatus === 'Completed') {
-            task.CompletedAt = mergedDate ?? task.CompletedAt ?? new Date();
-        } else if (coreStatus !== 'Cancelled') {
-            task.CompletedAt = null;
-        }
 
-        const taskSaved = await task.Save();
-        if (!taskSaved) {
-            throw new Error(`Failed saving Task for GitHub PR #${pr.number}: ${task.LatestResult?.CompleteMessage ?? 'save failed'}`);
-        }
-
-        const prExt = await md.GetEntityObject<mjBizAppsTasksGitHubGitHubPullRequestTaskEntity>(
-            GITHUB_PR_TASKS_ENTITY,
-            contextUser,
-        );
-        const extLoaded = await prExt.Load(task.ID);
-        if (!extLoaded) {
-            prExt.NewRecord();
-            prExt.ID = task.ID;
-        }
-
-        let linkedIssueTaskId: string | null = prExt.LinkedIssueTaskID;
+        let resolvedLinkedIssueTaskId: string | null = null;
         const targetIssueNumber = pr.linkedIssueNumber ?? this.extractLinkedIssueNumberFromBody(pr.body);
         if (targetIssueNumber != null) {
             const linkedIssueExt =
@@ -1006,80 +991,131 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
                     contextUser,
                 ));
             if (linkedIssueExt) {
-                linkedIssueTaskId = linkedIssueExt.ID;
+                resolvedLinkedIssueTaskId = linkedIssueExt.ID;
             }
         }
 
-        const newBodyHash = GitHubFieldOwnershipPolicy.ComputeBodyHash(pr.title, pr.body);
-        const previousBodyHash = prExt.BodyHash;
-        const bodyChanged = isNew || previousBodyHash !== newBodyHash;
-        const milestoneDate = this.parseOptionalDate(pr.milestoneDueAt);
-
-        prExt.RepositoryID = repository.ID;
-        prExt.Number = pr.number;
-        prExt.NodeID = pr.nodeId;
-        prExt.HtmlURL = pr.htmlUrl;
-        prExt.State = mergedDate != null ? 'merged' : pr.state;
-        prExt.IsDraft = Boolean(pr.isDraft);
-        prExt.HeadBranch = pr.headBranch ?? null;
-        prExt.HeadSha = pr.headSha ?? null;
-        prExt.BaseBranch = pr.baseBranch ?? null;
-        prExt.AuthorLogin = pr.authorLogin ?? null;
-
-        // Only overwrite ReviewDecision, ChecksStatus, ChangedFiles, Additions, Deletions when carried by the event
-        if (pr.reviewDecision !== undefined) {
-            prExt.ReviewDecision = pr.reviewDecision;
-        } else if (isNew) {
-            prExt.ReviewDecision = null;
-        }
-        if (pr.checksStatus !== undefined) {
-            prExt.ChecksStatus = pr.checksStatus;
-        } else if (isNew) {
-            prExt.ChecksStatus = null;
-        }
-        if (pr.changedFiles !== undefined) {
-            prExt.ChangedFiles = pr.changedFiles;
-        } else if (isNew) {
-            prExt.ChangedFiles = null;
-        }
-        if (pr.additions !== undefined) {
-            prExt.Additions = pr.additions;
-        } else if (isNew) {
-            prExt.Additions = null;
-        }
-        if (pr.deletions !== undefined) {
-            prExt.Deletions = pr.deletions;
-        } else if (isNew) {
-            prExt.Deletions = null;
-        }
-
-        prExt.Labels = pr.labels ? JSON.stringify(pr.labels) : null;
-        prExt.Milestone = pr.milestoneTitle ?? null;
-        prExt.MilestoneDueAt = milestoneDate;
-        prExt.MergedAt = mergedDate;
-        prExt.LinkedIssueTaskID = linkedIssueTaskId;
-        prExt.BodyHash = newBodyHash;
-        prExt.GitHubUpdatedAt = incomingUpdatedAt ?? existingUpdatedAt;
-        prExt.LastSyncedAt = new Date();
-
-        const extSaved = await prExt.Save();
-        if (!extSaved) {
-            if (isNew && !isRetryAfterCollision) {
-                if (extLoaded) {
-                    const extDeleted = await prExt.Delete();
-                    if (!extDeleted) {
-                        const delErr = `Failed deleting orphan GitHubPullRequestTask '${prExt.ID}' after collision on #${pr.number}: ${prExt.LatestResult?.CompleteMessage ?? 'delete failed'}`;
-                        LogError(delErr);
-                        throw new Error(delErr);
-                    }
+        let prExt: mjBizAppsTasksGitHubGitHubPullRequestTaskEntity;
+        let bodyChanged: boolean;
+        try {
+            const persisted = await RunWithEntityTransaction(md, async () => {
+                const leaf = await md.GetEntityObject<mjBizAppsTasksGitHubGitHubPullRequestTaskEntity>(
+                    GITHUB_PR_TASKS_ENTITY,
+                    contextUser,
+                );
+                if (isNew) {
+                    leaf.NewRecord();
+                    leaf.TypeID = refContext.prTaskTypeId;
+                    leaf.Priority = 'High';
                 } else {
-                    const orphanDeleted = await task.Delete();
-                    if (!orphanDeleted) {
-                        const delErr = `Failed deleting orphan Task '${task.ID}' after GitHubPullRequestTask collision on #${pr.number}: ${task.LatestResult?.CompleteMessage ?? 'delete failed'}`;
-                        LogError(delErr);
-                        throw new Error(delErr);
+                    const loaded = await leaf.Load(existingExt.ID);
+                    if (!loaded) {
+                        throw new Error(`Failed loading GitHubPullRequestTask '${existingExt.ID}' for GitHub PR #${pr.number}`);
                     }
                 }
+
+                const effectiveReviewDecision =
+                    pr.reviewDecision !== undefined ? pr.reviewDecision : (leaf.ReviewDecision ?? existingExt?.ReviewDecision ?? null);
+                const typeStatusCode = GitHubFieldOwnershipPolicy.MapPullRequestTypeStatusCode({
+                    ...pr,
+                    reviewDecision: effectiveReviewDecision,
+                });
+                const preservedFactoryStatus = !isNew
+                    && pr.state === 'open'
+                    && this.isReadyForFactoryStatus(leaf.TaskTypeStatusID, refContext.prStatusesByCode);
+
+                const effectiveStatusCode = preservedFactoryStatus ? 'READY_FOR_FACTORY' : typeStatusCode;
+                const typeStatusId = refContext.prStatusesByCode.get(effectiveStatusCode) ?? null;
+                const coreStatus = GitHubFieldOwnershipPolicy.MapTypeStatusCodeToCoreStatus(effectiveStatusCode);
+
+                leaf.Name = pr.title;
+                leaf.Description = pr.body ?? null;
+                leaf.Status = coreStatus;
+                leaf.TaskTypeStatusID = typeStatusId;
+                if (coreStatus === 'Completed') {
+                    leaf.CompletedAt = mergedDate ?? leaf.CompletedAt ?? new Date();
+                } else if (coreStatus !== 'Cancelled') {
+                    leaf.CompletedAt = null;
+                }
+
+                const previousBodyHash = leaf.BodyHash;
+                const localBodyChanged = isNew || previousBodyHash !== newBodyHash;
+                const linkedIssueTaskId = resolvedLinkedIssueTaskId ?? leaf.LinkedIssueTaskID;
+
+                leaf.RepositoryID = repository.ID;
+                leaf.Number = pr.number;
+                leaf.NodeID = pr.nodeId;
+                leaf.HtmlURL = pr.htmlUrl;
+                leaf.State = mergedDate != null ? 'merged' : pr.state;
+                leaf.IsDraft = Boolean(pr.isDraft);
+                leaf.HeadBranch = pr.headBranch ?? null;
+                leaf.HeadSha = pr.headSha ?? null;
+                leaf.BaseBranch = pr.baseBranch ?? null;
+                leaf.AuthorLogin = pr.authorLogin ?? null;
+
+                // Only overwrite ReviewDecision, ChecksStatus, ChangedFiles, Additions, Deletions when carried by the event
+                if (pr.reviewDecision !== undefined) {
+                    leaf.ReviewDecision = pr.reviewDecision;
+                } else if (isNew) {
+                    leaf.ReviewDecision = null;
+                }
+                if (pr.checksStatus !== undefined) {
+                    leaf.ChecksStatus = pr.checksStatus;
+                } else if (isNew) {
+                    leaf.ChecksStatus = null;
+                }
+                if (pr.changedFiles !== undefined) {
+                    leaf.ChangedFiles = pr.changedFiles;
+                } else if (isNew) {
+                    leaf.ChangedFiles = null;
+                }
+                if (pr.additions !== undefined) {
+                    leaf.Additions = pr.additions;
+                } else if (isNew) {
+                    leaf.Additions = null;
+                }
+                if (pr.deletions !== undefined) {
+                    leaf.Deletions = pr.deletions;
+                } else if (isNew) {
+                    leaf.Deletions = null;
+                }
+
+                leaf.Labels = pr.labels ? JSON.stringify(pr.labels) : null;
+                leaf.Milestone = pr.milestoneTitle ?? null;
+                leaf.MilestoneDueAt = milestoneDate;
+                leaf.MergedAt = mergedDate;
+                leaf.LinkedIssueTaskID = linkedIssueTaskId;
+                leaf.BodyHash = newBodyHash;
+                leaf.GitHubUpdatedAt = incomingUpdatedAt ?? existingUpdatedAt;
+                leaf.LastSyncedAt = new Date();
+
+                const saved = await leaf.Save();
+                if (!saved) {
+                    throw new LeafEntitySaveError(
+                        `Failed saving GitHubPullRequestTask for #${pr.number}: ${leaf.LatestResult?.CompleteMessage ?? 'save failed'}`,
+                    );
+                }
+
+                await this.reconcileTaskAssignments(
+                    leaf,
+                    isNew,
+                    mappedPrimaryPeople,
+                    mappedReviewerPeople,
+                    refContext,
+                    contextUser,
+                    md,
+                    rv,
+                );
+
+                return { leaf, bodyChanged: localBodyChanged };
+            });
+
+            prExt = persisted.leaf;
+            bodyChanged = persisted.bodyChanged;
+        } catch (err) {
+            if (err instanceof LeafEntitySaveError && isNew && !isRetryAfterCollision) {
+                // Transaction has already rolled back cleanly; check for a concurrent cross-process
+                // insert winner on UX_GitHubPullRequestTask_Repo_Number and re-sync as an update.
                 const collided = await this.findExistingPrExtension(
                     repository.ID,
                     pr.number,
@@ -1102,9 +1138,9 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
                     );
                 }
             }
-            const errMsg = `Failed saving GitHubPullRequestTask extension for #${pr.number}: ${prExt.LatestResult?.CompleteMessage ?? 'save failed'}`;
+            const errMsg = err instanceof Error ? err.message : String(err);
             LogError(errMsg);
-            throw new Error(errMsg);
+            throw err;
         }
 
         if (preloaded) {
@@ -1114,21 +1150,11 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
             }
         }
 
-        await this.reconcileTaskAssignments(
-            task.ID,
-            mappedPrimaryPeople,
-            mappedReviewerPeople,
-            refContext,
-            contextUser,
-            md,
-            rv,
-        );
-
         let supersededDueAtSuggestions = 0;
         if (milestoneDate != null) {
             supersededDueAtSuggestions = await GitHubTaskInferenceService.Instance.SupersedePendingSuggestionsForField(
                 refContext.tasksEntityId,
-                task.ID,
+                prExt.ID,
                 'DueAt',
                 contextUser,
                 md,
@@ -1142,7 +1168,7 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
             ...mappedReviewerPeople.map((p) => p.login),
         ];
         const inferenceOptions = {
-            task,
+            task: prExt,
             repositoryId: repository.ID,
             repositoryFullName: `${repository.Owner}/${repository.Name}`,
             itemKind: 'pull_request' as const,
@@ -1173,7 +1199,7 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
 
         return {
             action: isNew ? 'created' : 'updated',
-            taskId: task.ID,
+            taskId: prExt.ID,
             bodyChanged,
             supersededDueAtSuggestions,
             inferredSuggestionsCreated,
@@ -1233,7 +1259,8 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
     }
 
     private async reconcileTaskAssignments(
-        taskId: string,
+        taskEntity: CompanionHostEntity & { ID: string },
+        isNewTask: boolean,
         primaryPeople: Array<{ login: string; personId: string }>,
         reviewerPeople: Array<{ login: string; personId: string }>,
         refContext: SyncReferenceContext,
@@ -1241,7 +1268,68 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         md: IMetadataProvider,
         rv: RunView,
     ): Promise<void> {
-        const cleanTaskId = AssertValidUUID(taskId, 'taskId');
+        const cleanTaskId = AssertValidUUID(taskEntity.ID, 'taskId');
+        const desired = [
+            ...primaryPeople.map((p) => ({ ...p, roleId: refContext.primaryRoleId })),
+            ...reviewerPeople.map((p) => ({ ...p, roleId: refContext.reviewerRoleId })),
+        ];
+
+        if (isNewTask && desired.length === 0) {
+            return;
+        }
+
+        const resolvedCompanion = resolveAssignmentsCompanion(taskEntity);
+        if (resolvedCompanion) {
+            const { owner, collection } = resolvedCompanion;
+            if (!isNewTask && !collection.IsLoaded) {
+                await collection.Load(false);
+            }
+
+            const existingRows = collection.Items;
+            for (const target of desired) {
+                const match = existingRows.find(
+                    (row) =>
+                        UUIDsEqual(row.AssigneeEntityID, refContext.peopleEntityId)
+                        && UUIDsEqual(row.AssigneeRecordID, target.personId)
+                        && UUIDsEqual(row.RoleID, target.roleId),
+                );
+                if (!match) {
+                    const assignment = await collection.Create();
+                    assignment.TaskID = cleanTaskId;
+                    assignment.AssigneeEntityID = refContext.peopleEntityId;
+                    assignment.AssigneeRecordID = target.personId;
+                    assignment.RoleID = target.roleId;
+                    assignment.RoleNotes = `${GITHUB_ASSIGNMENT_NOTE_PREFIX}${target.login})`;
+                }
+            }
+
+            for (const row of [...collection.Items]) {
+                const isGitHubManaged = typeof row.RoleNotes === 'string'
+                    && row.RoleNotes.startsWith(GITHUB_ASSIGNMENT_NOTE_PREFIX);
+                if (!isGitHubManaged) continue;
+
+                const stillDesired = desired.some(
+                    (d) =>
+                        UUIDsEqual(row.AssigneeEntityID, refContext.peopleEntityId)
+                        && UUIDsEqual(row.AssigneeRecordID, d.personId)
+                        && UUIDsEqual(row.RoleID, d.roleId),
+                );
+                if (!stillDesired) {
+                    collection.Remove(row);
+                }
+            }
+
+            if (collection.Dirty) {
+                const saved = await owner.Save();
+                if (!saved) {
+                    const msg = `Failed saving TaskAssignments via Assignments collection on Task '${cleanTaskId}': ${owner.LatestResult?.CompleteMessage ?? 'save failed'}`;
+                    LogError(msg);
+                    throw new Error(msg);
+                }
+            }
+            return;
+        }
+
         const existingRes = await rv.RunView<mjBizAppsTasksTaskAssignmentEntity>(
             {
                 EntityName: TASK_ASSIGNMENTS_ENTITY,
@@ -1255,10 +1343,6 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
         }
 
         const existingRows = existingRes.Results ?? [];
-        const desired = [
-            ...primaryPeople.map((p) => ({ ...p, roleId: refContext.primaryRoleId })),
-            ...reviewerPeople.map((p) => ({ ...p, roleId: refContext.reviewerRoleId })),
-        ];
 
         for (const target of desired) {
             const match = existingRows.find(
@@ -1361,16 +1445,19 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
             };
         }
 
-        for (const prExt of candidates) {
-            prExt.ChecksStatus = options.checksStatus;
-            prExt.LastSyncedAt = new Date();
-            const saved = await prExt.Save();
-            if (!saved) {
-                const errMsg = `Failed updating ChecksStatus on GitHubPullRequestTask '${prExt.ID}': ${prExt.LatestResult?.CompleteMessage ?? 'save failed'}`;
-                LogError(errMsg);
-                throw new Error(errMsg);
+        const md = options.provider ?? Metadata.Provider;
+        await RunWithEntityTransaction(md, async () => {
+            for (const prExt of candidates) {
+                prExt.ChecksStatus = options.checksStatus;
+                prExt.LastSyncedAt = new Date();
+                const saved = await prExt.Save();
+                if (!saved) {
+                    const errMsg = `Failed updating ChecksStatus on GitHubPullRequestTask '${prExt.ID}': ${prExt.LatestResult?.CompleteMessage ?? 'save failed'}`;
+                    LogError(errMsg);
+                    throw new Error(errMsg);
+                }
             }
-        }
+        });
 
         return {
             action: 'updated',

@@ -1,6 +1,6 @@
 import { Component, OnInit, ChangeDetectorRef, inject } from '@angular/core';
 import { CompositeKey, RunView } from '@memberjunction/core';
-import { RegisterClassEx } from '@memberjunction/global';
+import { IsValidUUID, RegisterClassEx } from '@memberjunction/global';
 import { BaseFormPanel } from '@memberjunction/ng-base-forms';
 import { NavigationService } from '@memberjunction/ng-shared';
 import type { mjBizAppsTasksTaskEntity, mjBizAppsTasksTaskLinkEntity } from '@mj-biz-apps/tasks-entities';
@@ -128,64 +128,120 @@ export class TaskGitHubLinksPanel extends BaseFormPanel<mjBizAppsTasksTaskEntity
         }
     }
 
+    private mapPrDisplayItem(pr: mjBizAppsTasksGitHubGitHubPullRequestTaskEntity): PrDisplayItem {
+        const state: 'open' | 'merged' | 'closed' | 'draft' =
+            pr.IsDraft && pr.State === 'open' ? 'draft' : (pr.State || 'open');
+        const stateLabel =
+            state === 'draft' ? 'Draft' :
+            state === 'merged' ? 'Merged' :
+            state === 'closed' ? 'Closed' : 'Open';
+        const branchFlow =
+            pr.HeadBranch && pr.BaseBranch ? `${pr.HeadBranch} → ${pr.BaseBranch}` :
+            pr.HeadBranch || pr.BaseBranch || '—';
+        return {
+            ID: pr.ID,
+            Number: pr.Number ?? null,
+            Title: pr.Name || 'Pull Request',
+            State: state,
+            StateLabel: stateLabel,
+            BranchFlow: branchFlow,
+            Additions: pr.Additions || 0,
+            Deletions: pr.Deletions || 0,
+            HtmlUrl: pr.HtmlURL || null,
+        };
+    }
+
+    private mapIssueDisplayItem(issue: mjBizAppsTasksGitHubGitHubIssueTaskEntity): IssueDisplayItem {
+        return {
+            ID: issue.ID,
+            Number: issue.Number ?? null,
+            Title: issue.Name || 'Issue',
+            State: issue.State || 'open',
+            StateLabel: issue.State === 'closed' ? 'Closed' : 'Open',
+            RepositoryName: issue.Repository || 'GitHub Repository',
+            Milestone: issue.Milestone || null,
+            HtmlUrl: issue.HtmlURL || null,
+        };
+    }
+
     private async loadLinkedGitHubItems(): Promise<void> {
-        const taskId = this.Record?.ID;
-        if (!taskId) return;
+        const rawTaskId = this.Record?.ID;
+        if (!rawTaskId || !IsValidUUID(rawTaskId)) return;
+        const taskId = rawTaskId.trim();
 
         this.IsLoading = true;
         try {
             const rv = RunView.FromMetadataProvider(this.FormComponent?.ProviderToUse);
 
-            // 1. Fetch TaskLinks where TaskID = taskId
-            const linkResult = await rv.RunView<mjBizAppsTasksTaskLinkEntity>({
-                EntityName: 'MJ_BizApps_Tasks: Task Links',
-                ExtraFilter: `TaskID = '${taskId}'`,
-                ResultType: 'simple',
-            });
+            // 1. Fetch TaskLinks and check if the task itself is a GitHub Issue or PR subtype in parallel
+            const [linkResult, selfPrRes, selfIssueRes] = await Promise.all([
+                rv.RunView<mjBizAppsTasksTaskLinkEntity>({
+                    EntityName: 'MJ_BizApps_Tasks: Task Links',
+                    ExtraFilter: `TaskID = '${taskId}'`,
+                    ResultType: 'simple',
+                }),
+                rv.RunView<mjBizAppsTasksGitHubGitHubPullRequestTaskEntity>({
+                    EntityName: 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks',
+                    ExtraFilter: `ID = '${taskId}'`,
+                    ResultType: 'simple',
+                }),
+                rv.RunView<mjBizAppsTasksGitHubGitHubIssueTaskEntity>({
+                    EntityName: 'MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks',
+                    ExtraFilter: `ID = '${taskId}'`,
+                    ResultType: 'simple',
+                }),
+            ]);
 
-            const prIds = new Set<string>();
-            const issueIds = new Set<string>();
-            const repoIds = new Set<string>();
-
-            if (linkResult.Success && Array.isArray(linkResult.Results)) {
-                for (const link of linkResult.Results) {
-                    const entityName = (link.Entity || '').toLowerCase();
-                    if (entityName.includes('pull request')) {
-                        prIds.add(link.RecordID);
-                    } else if (entityName.includes('issue')) {
-                        issueIds.add(link.RecordID);
-                    } else if (entityName.includes('repositor')) {
-                        repoIds.add(link.RecordID);
+            // Seed maps directly from the already-fetched self subtype rows (eliminating redundant re-queries)
+            const prByLowerId = new Map<string, mjBizAppsTasksGitHubGitHubPullRequestTaskEntity>();
+            if (selfPrRes.Success && Array.isArray(selfPrRes.Results)) {
+                for (const pr of selfPrRes.Results) {
+                    if (pr.ID) {
+                        prByLowerId.set(pr.ID.toLowerCase(), pr);
                     }
                 }
             }
 
-            // 2. Also check if the task itself is a GitHub Issue or Pull Request task subtype
-            const selfPrPromise = rv.RunView<mjBizAppsTasksGitHubGitHubPullRequestTaskEntity>({
-                EntityName: 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks',
-                ExtraFilter: `ID = '${taskId}'`,
-                ResultType: 'simple',
-            });
-            const selfIssuePromise = rv.RunView<mjBizAppsTasksGitHubGitHubIssueTaskEntity>({
-                EntityName: 'MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks',
-                ExtraFilter: `ID = '${taskId}'`,
-                ResultType: 'simple',
-            });
-
-            const [selfPrRes, selfIssueRes] = await Promise.all([selfPrPromise, selfIssuePromise]);
-
-            if (selfPrRes.Success && Array.isArray(selfPrRes.Results) && selfPrRes.Results.length > 0) {
-                prIds.add(taskId);
-            }
-            if (selfIssueRes.Success && Array.isArray(selfIssueRes.Results) && selfIssueRes.Results.length > 0) {
-                issueIds.add(taskId);
+            const issueByLowerId = new Map<string, mjBizAppsTasksGitHubGitHubIssueTaskEntity>();
+            if (selfIssueRes.Success && Array.isArray(selfIssueRes.Results)) {
+                for (const issue of selfIssueRes.Results) {
+                    if (issue.ID) {
+                        issueByLowerId.set(issue.ID.toLowerCase(), issue);
+                    }
+                }
             }
 
-            // 3. Batch fetch details for PRs, Issues, and Repositories
+            const remainingPrIds = new Set<string>();
+            const remainingIssueIds = new Set<string>();
+            const repoIds = new Set<string>();
+
+            if (linkResult.Success && Array.isArray(linkResult.Results)) {
+                for (const link of linkResult.Results) {
+                    const recordId = typeof link.RecordID === 'string' ? link.RecordID.trim() : '';
+                    if (!recordId || !IsValidUUID(recordId)) {
+                        continue;
+                    }
+                    const lowerId = recordId.toLowerCase();
+                    const entityName = (link.Entity || '').toLowerCase();
+                    if (entityName.includes('pull request')) {
+                        if (!prByLowerId.has(lowerId)) {
+                            remainingPrIds.add(recordId);
+                        }
+                    } else if (entityName.includes('issue')) {
+                        if (!issueByLowerId.has(lowerId)) {
+                            remainingIssueIds.add(recordId);
+                        }
+                    } else if (entityName.includes('repositor')) {
+                        repoIds.add(recordId);
+                    }
+                }
+            }
+
+            // 2. Fetch details ONLY for linked PRs/Issues not already retrieved, plus linked Repositories
             const fetchPromises: Promise<void>[] = [];
 
-            if (prIds.size > 0) {
-                const prFilter = Array.from(prIds).map(id => `ID = '${id}'`).join(' OR ');
+            if (remainingPrIds.size > 0) {
+                const prFilter = Array.from(remainingPrIds).map(id => `ID = '${id}'`).join(' OR ');
                 fetchPromises.push(
                     rv.RunView<mjBizAppsTasksGitHubGitHubPullRequestTaskEntity>({
                         EntityName: 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks',
@@ -193,37 +249,18 @@ export class TaskGitHubLinksPanel extends BaseFormPanel<mjBizAppsTasksTaskEntity
                         ResultType: 'simple',
                     }).then(res => {
                         if (res.Success && Array.isArray(res.Results)) {
-                            this.LinkedPullRequests = res.Results.map(pr => {
-                                const state: 'open' | 'merged' | 'closed' | 'draft' =
-                                    pr.IsDraft && pr.State === 'open' ? 'draft' : (pr.State || 'open');
-                                const stateLabel =
-                                    state === 'draft' ? 'Draft' :
-                                    state === 'merged' ? 'Merged' :
-                                    state === 'closed' ? 'Closed' : 'Open';
-                                const branchFlow =
-                                    pr.HeadBranch && pr.BaseBranch ? `${pr.HeadBranch} → ${pr.BaseBranch}` :
-                                    pr.HeadBranch || pr.BaseBranch || '—';
-                                return {
-                                    ID: pr.ID,
-                                    Number: pr.Number ?? null,
-                                    Title: pr.Name || 'Pull Request',
-                                    State: state,
-                                    StateLabel: stateLabel,
-                                    BranchFlow: branchFlow,
-                                    Additions: pr.Additions || 0,
-                                    Deletions: pr.Deletions || 0,
-                                    HtmlUrl: pr.HtmlURL || null,
-                                };
-                            });
+                            for (const pr of res.Results) {
+                                if (pr.ID) {
+                                    prByLowerId.set(pr.ID.toLowerCase(), pr);
+                                }
+                            }
                         }
                     })
                 );
-            } else {
-                this.LinkedPullRequests = [];
             }
 
-            if (issueIds.size > 0) {
-                const issueFilter = Array.from(issueIds).map(id => `ID = '${id}'`).join(' OR ');
+            if (remainingIssueIds.size > 0) {
+                const issueFilter = Array.from(remainingIssueIds).map(id => `ID = '${id}'`).join(' OR ');
                 fetchPromises.push(
                     rv.RunView<mjBizAppsTasksGitHubGitHubIssueTaskEntity>({
                         EntityName: 'MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks',
@@ -231,21 +268,14 @@ export class TaskGitHubLinksPanel extends BaseFormPanel<mjBizAppsTasksTaskEntity
                         ResultType: 'simple',
                     }).then(res => {
                         if (res.Success && Array.isArray(res.Results)) {
-                            this.LinkedIssues = res.Results.map(issue => ({
-                                ID: issue.ID,
-                                Number: issue.Number ?? null,
-                                Title: issue.Name || 'Issue',
-                                State: issue.State || 'open',
-                                StateLabel: issue.State === 'closed' ? 'Closed' : 'Open',
-                                RepositoryName: issue.Repository || 'GitHub Repository',
-                                Milestone: issue.Milestone || null,
-                                HtmlUrl: issue.HtmlURL || null,
-                            }));
+                            for (const issue of res.Results) {
+                                if (issue.ID) {
+                                    issueByLowerId.set(issue.ID.toLowerCase(), issue);
+                                }
+                            }
                         }
                     })
                 );
-            } else {
-                this.LinkedIssues = [];
             }
 
             if (repoIds.size > 0) {
@@ -277,6 +307,8 @@ export class TaskGitHubLinksPanel extends BaseFormPanel<mjBizAppsTasksTaskEntity
             }
 
             await Promise.all(fetchPromises);
+            this.LinkedPullRequests = Array.from(prByLowerId.values()).map(pr => this.mapPrDisplayItem(pr));
+            this.LinkedIssues = Array.from(issueByLowerId.values()).map(issue => this.mapIssueDisplayItem(issue));
         } catch {
             // Non-blocking
         } finally {

@@ -2378,6 +2378,47 @@ export class mjBizAppsTasksGitHubGitHubPullRequestTaskEntity extends BaseEntity<
  */
 @RegisterClass(BaseEntity, 'MJ_BizApps_Tasks_GitHub: Git Hub Repositories')
 export class mjBizAppsTasksGitHubGitHubRepositoryEntity extends BaseEntity<mjBizAppsTasksGitHubGitHubRepositoryEntityType> {
+
+    /**
+    * Related records: MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks
+    *
+    * Loads, validates and persists as one unit with this MJ_BizApps_Tasks_GitHub: Git Hub Repositories record — see
+    * guides/TRANSACTIONS_AND_BATCHING_GUIDE.md. Declared by the RelatedRecordCollection metadata on
+    * the 'MJ_BizApps_Tasks_GitHub: Git Hub Repositories → MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks' relationship; edit that row, not this file.
+    * **Read-only.** Add/Create/Remove/Clear throw, the collection contributes nothing to a save,
+    * and it never reports Dirty.
+    */
+    public readonly IssueTasks = this.DeclareRelatedRecords<mjBizAppsTasksGitHubGitHubIssueTaskEntity>({
+        Name: 'IssueTasks',
+        RelatedEntity: 'MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks',
+        RelatedEntityJoinField: 'RepositoryID',
+        OrderBy: 'Number DESC',
+        Load: 'explicit',
+        OnRemove: 'refuse',
+        Source: 'database',
+        ReadOnly: true,
+    });
+
+    /**
+    * Related records: MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks
+    *
+    * Loads, validates and persists as one unit with this MJ_BizApps_Tasks_GitHub: Git Hub Repositories record — see
+    * guides/TRANSACTIONS_AND_BATCHING_GUIDE.md. Declared by the RelatedRecordCollection metadata on
+    * the 'MJ_BizApps_Tasks_GitHub: Git Hub Repositories → MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks' relationship; edit that row, not this file.
+    * **Read-only.** Add/Create/Remove/Clear throw, the collection contributes nothing to a save,
+    * and it never reports Dirty.
+    */
+    public readonly PullRequestTasks = this.DeclareRelatedRecords<mjBizAppsTasksGitHubGitHubPullRequestTaskEntity>({
+        Name: 'PullRequestTasks',
+        RelatedEntity: 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks',
+        RelatedEntityJoinField: 'RepositoryID',
+        OrderBy: 'Number DESC',
+        Load: 'explicit',
+        OnRemove: 'refuse',
+        Source: 'database',
+        ReadOnly: true,
+    });
+
     /**
     * Loads the MJ_BizApps_Tasks_GitHub: Git Hub Repositories record from the database
     * @param ID: string - primary key value to load the MJ_BizApps_Tasks_GitHub: Git Hub Repositories record.

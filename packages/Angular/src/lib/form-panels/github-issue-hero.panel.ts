@@ -1,6 +1,6 @@
 import { Component, OnInit, ChangeDetectorRef, inject } from '@angular/core';
 import { CompositeKey, RunView } from '@memberjunction/core';
-import { RegisterClassEx } from '@memberjunction/global';
+import { IsValidUUID, RegisterClassEx, UUIDsEqual } from '@memberjunction/global';
 import { BaseFormPanel } from '@memberjunction/ng-base-forms';
 import { NavigationService } from '@memberjunction/ng-shared';
 import type { mjBizAppsTasksGitHubGitHubIssueTaskEntity } from '@mj-biz-apps/tasks-github-entities';
@@ -142,8 +142,9 @@ export class GitHubIssueHeroPanel extends BaseFormPanel<mjBizAppsTasksGitHubGitH
     }
 
     private async loadLinkedTasks(): Promise<void> {
-        const issueTaskId = this.Record?.ID;
-        if (!issueTaskId) return;
+        const rawIssueTaskId = this.Record?.ID;
+        if (!rawIssueTaskId || !IsValidUUID(rawIssueTaskId)) return;
+        const issueTaskId = rawIssueTaskId.trim();
 
         this.IsLoadingLinks = true;
         try {
@@ -158,7 +159,7 @@ export class GitHubIssueHeroPanel extends BaseFormPanel<mjBizAppsTasksGitHubGitH
             if (linkResult.Success && Array.isArray(linkResult.Results)) {
                 const items: LinkedTaskItem[] = [];
                 for (const row of linkResult.Results) {
-                    if (row.TaskID && row.TaskID !== issueTaskId) {
+                    if (row.TaskID && !UUIDsEqual(row.TaskID, issueTaskId)) {
                         items.push({
                             TaskID: row.TaskID,
                             TaskName: row.Task || 'Linked Task',

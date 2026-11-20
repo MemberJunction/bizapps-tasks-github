@@ -4,12 +4,17 @@ import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type {
     EntityInfo,
+    EntityTransactionScope,
     IMetadataProvider,
     IRunViewProvider,
     RunViewParams,
     RunViewResult,
     UserInfo,
 } from '@memberjunction/core';
+import type {
+    mjBizAppsTasksGitHubGitHubRepositoryEntity,
+} from '@mj-biz-apps/tasks-github-entities';
+import type { mjBizAppsTasksTaskAssignmentEntity } from '@mj-biz-apps/tasks-entities';
 import {
     COMMENT_TYPES_ENTITY_NAME,
     CONVERSATION_TYPES_ENTITY_NAME,
@@ -36,13 +41,52 @@ interface InMemoryRecord {
     [key: string]: string | number | boolean | Date | null | undefined;
 }
 
+const INHERITED_TASK_FIELDS = [
+    'Name',
+    'Description',
+    'TypeID',
+    'CategoryID',
+    'ParentID',
+    'Status',
+    'Priority',
+    'StartedAt',
+    'DueAt',
+    'CompletedAt',
+    'HoursEstimated',
+    'HoursActual',
+    'PercentComplete',
+    'Sequence',
+    'BlockedReason',
+    'CompletionNotes',
+    'CreatedByPersonID',
+    'OverdueNotifiedAt',
+    'TaskTypeStatusID',
+] as const;
+
+type FakeEntityFieldValue =
+    | string
+    | number
+    | boolean
+    | Date
+    | null
+    | undefined
+    | { CompleteMessage: string }
+    | Map<string, InMemoryRecord>
+    | ((rec: InMemoryRecord) => void)
+    | ((id: string) => void)
+    | ((id: string) => InMemoryRecord | undefined)
+    | (() => void)
+    | ((id: string) => Promise<boolean>)
+    | (() => Promise<boolean>);
+
 class FakeEntityObject {
     public ID = '';
     public LatestResult = { CompleteMessage: '' };
     private readonly _store: Map<string, InMemoryRecord>;
     private readonly _onSave?: (rec: InMemoryRecord) => void;
     private readonly _onDelete?: (id: string) => void;
-    [key: string]: string | number | boolean | Date | null | undefined | { CompleteMessage: string } | Map<string, InMemoryRecord> | ((rec: InMemoryRecord) => void) | ((id: string) => void) | (() => void) | ((id: string) => Promise<boolean>) | (() => Promise<boolean>);
+    private readonly _onLoadParent?: (id: string) => InMemoryRecord | undefined;
+    [key: string]: FakeEntityFieldValue;
 
     public constructor(
         store: Map<string, InMemoryRecord>,
@@ -50,10 +94,12 @@ class FakeEntityObject {
         private readonly _counter: { next: number },
         onSave?: (rec: InMemoryRecord) => void,
         onDelete?: (id: string) => void,
+        onLoadParent?: (id: string) => InMemoryRecord | undefined,
     ) {
         this._store = store;
         this._onSave = onSave;
         this._onDelete = onDelete;
+        this._onLoadParent = onLoadParent;
     }
 
     public NewRecord(): void {
@@ -64,7 +110,19 @@ class FakeEntityObject {
     public async Load(id: string): Promise<boolean> {
         const found = this._store.get(id.toLowerCase());
         if (!found) return false;
+        const parentRow = this._onLoadParent?.(id.toLowerCase());
+        if (parentRow) {
+            Object.assign(this, parentRow);
+        }
         Object.assign(this, found);
+        if (parentRow) {
+            // Parent Task fields (e.g. human edits to Priority/HoursEstimated/ParentID/TaskTypeStatusID) take precedence
+            for (const field of INHERITED_TASK_FIELDS) {
+                if (field in parentRow) {
+                    this[field] = parentRow[field];
+                }
+            }
+        }
         return true;
     }
 
@@ -90,7 +148,7 @@ class FakeEntityObject {
         }
         const snapshot: InMemoryRecord = { ID: this.ID };
         for (const [k, v] of Object.entries(this)) {
-            if (!k.startsWith('_') && k !== 'LatestResult') {
+            if (!k.startsWith('_') && k !== 'LatestResult' && typeof v !== 'function') {
                 snapshot[k] = v as string | number | boolean | Date | null | undefined;
             }
         }
@@ -192,13 +250,49 @@ function buildTestHarness() {
         ImportRule: 'All',
     });
 
+    const saveCounts = new Map<string, number>();
+    const txStats = { began: 0, committed: 0, rolledBack: 0 };
+    let activeTxDepth = 0;
+
+    const cloneStores = (): Map<string, Map<string, InMemoryRecord>> => {
+        const copy = new Map<string, Map<string, InMemoryRecord>>();
+        for (const [entityName, store] of stores.entries()) {
+            const inner = new Map<string, InMemoryRecord>();
+            for (const [key, rec] of store.entries()) {
+                inner.set(key, { ...rec });
+            }
+            copy.set(entityName, inner);
+        }
+        return copy;
+    };
+
+    const restoreStores = (snapshot: Map<string, Map<string, InMemoryRecord>>): void => {
+        stores.clear();
+        for (const [entityName, inner] of snapshot.entries()) {
+            stores.set(entityName, inner);
+        }
+    };
+
     const makeEntity = (entityName: string, initial?: InMemoryRecord): FakeEntityObject => {
+        const isIsaLeaf = entityName === GITHUB_ISSUE_TASKS_ENTITY || entityName === GITHUB_PR_TASKS_ENTITY;
         const obj = new FakeEntityObject(
             getStore(entityName),
             entityName,
             counter,
             (saved) => {
-                // Simulate SubtypeSelector AutoEnsureOnSave on Task save
+                saveCounts.set(entityName, (saveCounts.get(entityName) ?? 0) + 1);
+                // Simulate MJ IS-A leaf save: saving GitHubIssueTask / GitHubPullRequestTask atomically writes parent Task row
+                if (isIsaLeaf) {
+                    const existingTask = getStore(TASKS_ENTITY_NAME).get(saved.ID.toLowerCase()) ?? { ID: saved.ID };
+                    const mergedTask: InMemoryRecord = { ...existingTask, ID: saved.ID };
+                    for (const field of INHERITED_TASK_FIELDS) {
+                        if (field in saved) {
+                            mergedTask[field] = saved[field];
+                        }
+                    }
+                    getStore(TASKS_ENTITY_NAME).set(saved.ID.toLowerCase(), mergedTask);
+                }
+                // Simulate SubtypeSelector AutoEnsureOnSave when saving Task directly
                 if (entityName === TASKS_ENTITY_NAME) {
                     if (saved.TypeID === ISSUE_TYPE_ID && !getStore(GITHUB_ISSUE_TASKS_ENTITY).has(saved.ID.toLowerCase())) {
                         getStore(GITHUB_ISSUE_TASKS_ENTITY).set(saved.ID.toLowerCase(), { ID: saved.ID, State: 'open' });
@@ -209,12 +303,19 @@ function buildTestHarness() {
             },
             (deletedId) => {
                 // Simulate MJ IS-A chain delete: deleting an IS-A child also deletes its parent Task row
-                if (entityName === GITHUB_ISSUE_TASKS_ENTITY || entityName === GITHUB_PR_TASKS_ENTITY) {
+                if (isIsaLeaf) {
                     getStore(TASKS_ENTITY_NAME).delete(deletedId);
                 }
             },
+            isIsaLeaf ? (id) => getStore(TASKS_ENTITY_NAME).get(id) : undefined,
         );
         if (initial) {
+            if (isIsaLeaf) {
+                const parentRow = getStore(TASKS_ENTITY_NAME).get(initial.ID.toLowerCase());
+                if (parentRow) {
+                    Object.assign(obj, parentRow);
+                }
+            }
             Object.assign(obj, initial);
         }
         return obj;
@@ -310,12 +411,38 @@ function buildTestHarness() {
         { ID: TASKS_ENTITY_ID, Name: TASKS_ENTITY_NAME } as EntityInfo,
         { ID: PEOPLE_ENTITY_ID, Name: PEOPLE_ENTITY } as EntityInfo,
     ];
+    const beginEntityTransaction = async (): Promise<EntityTransactionScope> => {
+        txStats.began += 1;
+        const isNested = activeTxDepth > 0;
+        activeTxDepth += 1;
+        const snapshot = cloneStores();
+        let settled = false;
+        return {
+            IsNested: isNested,
+            Commit: async () => {
+                if (settled) return;
+                settled = true;
+                activeTxDepth = Math.max(0, activeTxDepth - 1);
+                txStats.committed += 1;
+            },
+            Rollback: async () => {
+                if (settled) return;
+                settled = true;
+                activeTxDepth = Math.max(0, activeTxDepth - 1);
+                txStats.rolledBack += 1;
+                restoreStores(snapshot);
+            },
+        };
+    };
+
     const provider = {
         Entities: entitiesList,
         EntityByName: (name: string) => entitiesList.find((e) => e.Name === name),
         GetEntityObject: async (entityName: string) => makeEntity(entityName),
         RunView: runSingleView,
         RunViews: async (views: RunViewParams[]) => Promise.all(views.map((v) => runSingleView(v))),
+        SupportsEntityTransactions: true,
+        BeginEntityTransaction: beginEntityTransaction,
     } as Partial<IMetadataProvider & IRunViewProvider> as IMetadataProvider & IRunViewProvider;
 
     const contextUser = { ID: '99999999-9999-4999-8999-000000000001', Name: 'System' } as UserInfo;
@@ -324,6 +451,8 @@ function buildTestHarness() {
         provider,
         contextUser,
         getStore,
+        saveCounts,
+        txStats,
         ids: {
             REPO_ASSIGNED_ID,
             REPO_ALL_ID,
@@ -471,7 +600,7 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
         const savedTask = taskStore.get(taskId.toLowerCase())!;
 
         // Human edits Tasks-owned planning fields and moves status to READY_FOR_FACTORY
-        savedTask.Priority = 'Urgent';
+        savedTask.Priority = 'Critical';
         savedTask.HoursEstimated = 12;
         savedTask.ParentID = 'cccccccc-cccc-4ccc-8ccc-000000000099';
         savedTask.TaskTypeStatusID = h.ids.READY_ISSUE_STATUS_ID;
@@ -504,7 +633,7 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
 
         const updatedTask = taskStore.get(taskId.toLowerCase())!;
         expect(updatedTask.Name).toBe('Updated GitHub Title');
-        expect(updatedTask.Priority).toBe('Urgent');
+        expect(updatedTask.Priority).toBe('Critical');
         expect(updatedTask.HoursEstimated).toBe(12);
         expect(updatedTask.ParentID).toBe('cccccccc-cccc-4ccc-8ccc-000000000099');
         expect(updatedTask.TaskTypeStatusID).toBe(h.ids.READY_ISSUE_STATUS_ID);
@@ -1470,31 +1599,57 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
         expect(badAssigneesValidation.error).toContain('Invalid assignees[0]: login must be a non-empty string');
     });
 
-    it('recovers from cross-process unique-key collision with IS-A chain delete on AutoEnsureOnSave and surfaces Delete() failure', async () => {
+    it('recovers from cross-process unique-key collision via transactional rollback and re-query without orphan Tasks', async () => {
         const h = buildTestHarness();
 
-        // Simulate another process having inserted Issue #700 right after preloadRepositoryExtensions ran
+        // Simulate another process having committed Issue #700 right after preloadRepositoryExtensions ran
         const winningTaskId = '00000000-0000-4000-8000-000000000700';
         const originalGetEntityObject = h.provider.GetEntityObject.bind(h.provider);
+        const txProvider = h.provider as { BeginEntityTransaction: () => Promise<EntityTransactionScope> };
+        const origBegin = txProvider.BeginEntityTransaction;
         let injectedConcurrentWinner = false;
+
+        txProvider.BeginEntityTransaction = async () => {
+            const scope = await origBegin();
+            if (!injectedConcurrentWinner) {
+                injectedConcurrentWinner = true;
+                const origRollback = scope.Rollback;
+                return {
+                    ...scope,
+                    Rollback: async () => {
+                        await origRollback();
+                        // Concurrent winner committed outside our rolled-back transaction
+                        h.getStore(TASKS_ENTITY_NAME).set(winningTaskId, {
+                            ID: winningTaskId,
+                            Name: 'Winner Issue #700',
+                            Status: 'Open',
+                        });
+                        h.getStore(GITHUB_ISSUE_TASKS_ENTITY).set(winningTaskId, {
+                            ID: winningTaskId,
+                            RepositoryID: h.ids.REPO_ALL_ID,
+                            Number: 700,
+                            NodeID: 'I_700',
+                            HtmlURL: 'https://github.com/MemberJunction/bizapps-tasks/issues/700',
+                            State: 'open',
+                        });
+                        txProvider.BeginEntityTransaction = origBegin;
+                    },
+                };
+            }
+            return scope;
+        };
+
+        let failedFirstLeafSave = false;
         h.provider.GetEntityObject = async (entityName: string) => {
             const entity = await originalGetEntityObject(entityName);
-            if (entityName === TASKS_ENTITY_NAME && !injectedConcurrentWinner) {
-                injectedConcurrentWinner = true;
-                // Winning process inserts parent Task + GitHubIssueTask for (REPO_ALL_ID, 700)
-                h.getStore(TASKS_ENTITY_NAME).set(winningTaskId, {
-                    ID: winningTaskId,
-                    Name: 'Winner Issue #700',
-                    Status: 'Open',
-                });
-                h.getStore(GITHUB_ISSUE_TASKS_ENTITY).set(winningTaskId, {
-                    ID: winningTaskId,
-                    RepositoryID: h.ids.REPO_ALL_ID,
-                    Number: 700,
-                    NodeID: 'I_700',
-                    HtmlURL: 'https://github.com/MemberJunction/bizapps-tasks/issues/700',
-                    State: 'open',
-                });
+            if (entityName === GITHUB_ISSUE_TASKS_ENTITY && !failedFirstLeafSave) {
+                failedFirstLeafSave = true;
+                entity.Save = async () => {
+                    entity.LatestResult = {
+                        CompleteMessage: 'Violation of UNIQUE KEY constraint UX_GitHubIssueTask_Repo_Number',
+                    };
+                    return false;
+                };
             }
             return entity;
         };
@@ -1518,35 +1673,20 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
         });
 
         expect(recoverySync[0].updated).toBe(1);
-        // Only the winning Task and its extension row remain; issueExt.Delete() deleted both child and parent Task via IS-A chain delete
+        expect(h.txStats.rolledBack).toBe(1);
+        expect(h.txStats.committed).toBe(1);
+        // Only the winning Task and its extension row remain; zero separate Task.Save() calls occurred
+        expect(h.saveCounts.get(TASKS_ENTITY_NAME) ?? 0).toBe(0);
         expect(h.getStore(TASKS_ENTITY_NAME).size).toBe(1);
         expect(h.getStore(GITHUB_ISSUE_TASKS_ENTITY).size).toBe(1);
         expect(h.getStore(TASKS_ENTITY_NAME).get(winningTaskId)?.Name).toBe('Recovered Title #700');
 
-        // Now verify that if issueExt.Delete() fails during collision recovery, SyncRepositories throws instead of leaving a silent orphan
-        const winningTaskId2 = '00000000-0000-4000-8000-000000000701';
-        let injectedWinner2 = false;
+        // Unrecoverable leaf save failure (no concurrent winner) rolls back cleanly and surfaces the error
         h.provider.GetEntityObject = async (entityName: string) => {
             const entity = await originalGetEntityObject(entityName);
-            if (entityName === TASKS_ENTITY_NAME && !injectedWinner2) {
-                injectedWinner2 = true;
-                h.getStore(TASKS_ENTITY_NAME).set(winningTaskId2, {
-                    ID: winningTaskId2,
-                    Name: 'Winner Issue #701',
-                    Status: 'Open',
-                });
-                h.getStore(GITHUB_ISSUE_TASKS_ENTITY).set(winningTaskId2, {
-                    ID: winningTaskId2,
-                    RepositoryID: h.ids.REPO_ALL_ID,
-                    Number: 701,
-                    NodeID: 'I_701',
-                    HtmlURL: 'https://github.com/MemberJunction/bizapps-tasks/issues/701',
-                    State: 'open',
-                });
-            }
-            if (entityName === GITHUB_ISSUE_TASKS_ENTITY && injectedWinner2) {
-                entity.Delete = async () => {
-                    entity.LatestResult = { CompleteMessage: 'Simulated FK constraint error on GitHubIssueTask.Delete' };
+            if (entityName === GITHUB_ISSUE_TASKS_ENTITY) {
+                entity.Save = async () => {
+                    entity.LatestResult = { CompleteMessage: 'Simulated database constraint error on GitHubIssueTask' };
                     return false;
                 };
             }
@@ -1561,7 +1701,7 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
                         kind: 'issue',
                         number: 701,
                         nodeId: 'I_701',
-                        title: 'Unrecoverable orphan test',
+                        title: 'Unrecoverable save failure test',
                         body: '',
                         htmlUrl: 'https://github.com/MemberJunction/bizapps-tasks/issues/701',
                         state: 'open',
@@ -1571,7 +1711,9 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
                 provider: h.provider,
                 runInference: false,
             }),
-        ).rejects.toThrow(/Failed deleting orphan GitHubIssueTask/);
+        ).rejects.toThrow(/Simulated database constraint error on GitHubIssueTask/);
+        expect(h.txStats.rolledBack).toBe(2);
+        expect(h.getStore(TASKS_ENTITY_NAME).size).toBe(1);
     });
 
     it('verifies SQL Server and PostgreSQL teardown scripts contain valid schema and column references', () => {
@@ -1758,5 +1900,438 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
         expect(pr800.ReviewDecision).toBe('APPROVED');
         expect(GitHubWebhookService.Instance.GetTrackedCheckShaCount()).toBe(1);
         expect(GitHubWebhookService.Instance.GetTrackedPrReviewCount()).toBe(1);
+    });
+
+    it('persists IS-A leaf in a single Save() inside BeginEntityTransaction and rolls back both Task and extension if TaskAssignment save fails', async () => {
+        const h = buildTestHarness();
+        const originalGetEntityObject = h.provider.GetEntityObject.bind(h.provider);
+
+        // 1. Happy path: single IS-A leaf Save() + assignment reconciliation commit atomically
+        const okSummary = await GitHubTaskSyncService.Instance.SyncRepositories({
+            repositoryId: h.ids.REPO_ALL_ID,
+            items: [
+                {
+                    kind: 'issue',
+                    number: 901,
+                    nodeId: 'I_901',
+                    title: 'Atomic IS-A leaf save',
+                    body: 'Single-save persistence',
+                    htmlUrl: 'https://github.com/MemberJunction/bizapps-tasks/issues/901',
+                    state: 'open',
+                    assigneeLogins: ['alice-dev'],
+                },
+            ],
+            contextUser: h.contextUser,
+            provider: h.provider,
+            runInference: false,
+        });
+
+        expect(okSummary[0].created).toBe(1);
+        expect(h.saveCounts.get(TASKS_ENTITY_NAME) ?? 0).toBe(0);
+        expect(h.saveCounts.get(GITHUB_ISSUE_TASKS_ENTITY)).toBe(1);
+        expect(h.saveCounts.get(TASK_ASSIGNMENTS_ENTITY)).toBe(1);
+        expect(h.txStats.began).toBe(1);
+        expect(h.txStats.committed).toBe(1);
+        expect(h.txStats.rolledBack).toBe(0);
+        expect(h.getStore(TASKS_ENTITY_NAME).size).toBe(1);
+        expect(h.getStore(GITHUB_ISSUE_TASKS_ENTITY).size).toBe(1);
+        expect(h.getStore(TASK_ASSIGNMENTS_ENTITY).size).toBe(1);
+
+        // 2. Failure path: if TaskAssignment.Save() fails, the entire transaction rolls back (no orphan Task/Issue row)
+        h.provider.GetEntityObject = async (entityName: string) => {
+            const entity = await originalGetEntityObject(entityName);
+            if (entityName === TASK_ASSIGNMENTS_ENTITY) {
+                entity.Save = async () => {
+                    entity.LatestResult = { CompleteMessage: 'Simulated TaskAssignment failure' };
+                    return false;
+                };
+            }
+            return entity;
+        };
+
+        await expect(
+            GitHubTaskSyncService.Instance.SyncRepositories({
+                repositoryId: h.ids.REPO_ALL_ID,
+                items: [
+                    {
+                        kind: 'issue',
+                        number: 902,
+                        nodeId: 'I_902',
+                        title: 'Should roll back completely',
+                        body: 'Assignment failure triggers rollback',
+                        htmlUrl: 'https://github.com/MemberJunction/bizapps-tasks/issues/902',
+                        state: 'open',
+                        assigneeLogins: ['alice-dev'],
+                    },
+                ],
+                contextUser: h.contextUser,
+                provider: h.provider,
+                runInference: false,
+            }),
+        ).rejects.toThrow(/Simulated TaskAssignment failure/);
+
+        expect(h.txStats.rolledBack).toBe(1);
+        // Only issue #901 remains; #902 left zero orphan Task or GitHubIssueTask rows
+        expect(h.getStore(TASKS_ENTITY_NAME).size).toBe(1);
+        expect(h.getStore(GITHUB_ISSUE_TASKS_ENTITY).size).toBe(1);
+        expect(h.getStore(TASK_ASSIGNMENTS_ENTITY).size).toBe(1);
+    });
+
+    it('reconciles TaskAssignments via parent Task Assignments RelatedRecordCollection companion when available', async () => {
+        const h = buildTestHarness();
+        const originalGetEntityObject = h.provider.GetEntityObject.bind(h.provider);
+
+        let companionCreates = 0;
+        let companionRemoves = 0;
+        let parentSaves = 0;
+
+        h.provider.GetEntityObject = async (entityName: string) => {
+            const entity = await originalGetEntityObject(entityName);
+            if (entityName === GITHUB_ISSUE_TASKS_ENTITY) {
+                const items: mjBizAppsTasksTaskAssignmentEntity[] = [];
+                const removed: mjBizAppsTasksTaskAssignmentEntity[] = [];
+                let loaded = false;
+                let dirty = false;
+
+                const fakeCollection = {
+                    IsReadOnly: false,
+                    get IsLoaded() {
+                        return loaded;
+                    },
+                    get Dirty() {
+                        return dirty;
+                    },
+                    get Items() {
+                        return items;
+                    },
+                    Load: async () => {
+                        loaded = true;
+                        items.length = 0;
+                        for (const rec of h.getStore(TASK_ASSIGNMENTS_ENTITY).values()) {
+                            if (String(rec.TaskID ?? '').toLowerCase() === entity.ID.toLowerCase()) {
+                                const row = await originalGetEntityObject<mjBizAppsTasksTaskAssignmentEntity>(
+                                    TASK_ASSIGNMENTS_ENTITY,
+                                    h.contextUser,
+                                );
+                                Object.assign(row, rec);
+                                items.push(row);
+                            }
+                        }
+                    },
+                    Create: async () => {
+                        companionCreates += 1;
+                        dirty = true;
+                        const row = await originalGetEntityObject<mjBizAppsTasksTaskAssignmentEntity>(
+                            TASK_ASSIGNMENTS_ENTITY,
+                            h.contextUser,
+                        );
+                        row.NewRecord();
+                        items.push(row);
+                        return row;
+                    },
+                    Remove: (row: mjBizAppsTasksTaskAssignmentEntity) => {
+                        companionRemoves += 1;
+                        dirty = true;
+                        const idx = items.indexOf(row);
+                        if (idx >= 0) {
+                            items.splice(idx, 1);
+                            removed.push(row);
+                        }
+                    },
+                };
+
+                const fakeParent = {
+                    GetCompanion: (name: string) => (name === 'Assignments' ? fakeCollection : undefined),
+                    Save: async () => {
+                        parentSaves += 1;
+                        for (const item of items) {
+                            await item.Save();
+                        }
+                        for (const rem of removed) {
+                            await rem.Delete();
+                        }
+                        removed.length = 0;
+                        dirty = false;
+                        return true;
+                    },
+                };
+
+                Object.defineProperty(entity, 'ISAParent', {
+                    value: fakeParent,
+                    enumerable: false,
+                });
+            }
+            return entity;
+        };
+
+        // Create with alice-dev via companion
+        await GitHubTaskSyncService.Instance.SyncRepositories({
+            repositoryId: h.ids.REPO_ALL_ID,
+            items: [
+                {
+                    kind: 'issue',
+                    number: 910,
+                    nodeId: 'I_910',
+                    title: 'Companion assignment sync',
+                    body: 'Uses Assignments collection',
+                    htmlUrl: 'https://github.com/MemberJunction/bizapps-tasks/issues/910',
+                    state: 'open',
+                    assigneeLogins: ['alice-dev'],
+                },
+            ],
+            contextUser: h.contextUser,
+            provider: h.provider,
+            runInference: false,
+        });
+
+        expect(companionCreates).toBe(1);
+        expect(parentSaves).toBe(1);
+        expect(h.getStore(TASK_ASSIGNMENTS_ENTITY).size).toBe(1);
+
+        // Update swapping alice-dev -> bob-reviewer via companion
+        await GitHubTaskSyncService.Instance.SyncRepositories({
+            repositoryId: h.ids.REPO_ALL_ID,
+            items: [
+                {
+                    kind: 'issue',
+                    number: 910,
+                    nodeId: 'I_910',
+                    title: 'Companion assignment sync',
+                    body: 'Swapped assignee',
+                    htmlUrl: 'https://github.com/MemberJunction/bizapps-tasks/issues/910',
+                    state: 'open',
+                    assigneeLogins: ['bob-reviewer'],
+                },
+            ],
+            contextUser: h.contextUser,
+            provider: h.provider,
+            runInference: false,
+        });
+
+        expect(companionCreates).toBe(2);
+        expect(companionRemoves).toBe(1);
+        expect(parentSaves).toBe(2);
+        const storedAssignments = Array.from(h.getStore(TASK_ASSIGNMENTS_ENTITY).values());
+        expect(storedAssignments).toHaveLength(1);
+        expect(storedAssignments[0].AssigneeRecordID).toBe(h.ids.BOB_PERSON_ID);
+    });
+
+    it('wraps multi-PR UpdatePullRequestChecksStatus saves in BeginEntityTransaction and rolls back on partial failure', async () => {
+        const h = buildTestHarness();
+        const sha = 'deadbeef1234567890';
+
+        // Seed two PRs sharing the same HeadSha
+        await GitHubTaskSyncService.Instance.SyncRepositories({
+            repositoryId: h.ids.REPO_ALL_ID,
+            items: [
+                {
+                    kind: 'pull_request',
+                    number: 920,
+                    nodeId: 'PR_920',
+                    title: 'PR 1 on shared SHA',
+                    body: '',
+                    htmlUrl: 'https://github.com/MemberJunction/bizapps-tasks/pull/920',
+                    state: 'open',
+                    headSha: sha,
+                    checksStatus: 'Pending',
+                },
+                {
+                    kind: 'pull_request',
+                    number: 921,
+                    nodeId: 'PR_921',
+                    title: 'PR 2 on shared SHA',
+                    body: '',
+                    htmlUrl: 'https://github.com/MemberJunction/bizapps-tasks/pull/921',
+                    state: 'open',
+                    headSha: sha,
+                    checksStatus: 'Pending',
+                },
+            ],
+            contextUser: h.contextUser,
+            provider: h.provider,
+            runInference: false,
+        });
+
+        const repo = await h.provider.GetEntityObject<mjBizAppsTasksGitHubGitHubRepositoryEntity>(
+            GITHUB_REPOSITORIES_ENTITY,
+            h.contextUser,
+        );
+        await repo.Load(h.ids.REPO_ALL_ID);
+
+        // Fail the second PR save inside UpdatePullRequestChecksStatus
+        const origRunView = h.provider.RunView.bind(h.provider);
+        h.provider.RunView = async (params: RunViewParams) => {
+            const res = await origRunView(params);
+            if (params.EntityName === GITHUB_PR_TASKS_ENTITY && Array.isArray(res.Results) && res.Results.length === 2) {
+                const second = res.Results[1] as { Save: () => Promise<boolean>; LatestResult: { CompleteMessage: string } };
+                second.Save = async () => {
+                    second.LatestResult = { CompleteMessage: 'Simulated second PR save error' };
+                    return false;
+                };
+            }
+            return res;
+        };
+
+        const rollbacksBefore = h.txStats.rolledBack;
+        await expect(
+            GitHubTaskSyncService.Instance.UpdatePullRequestChecksStatus({
+                repository: repo,
+                headSha: sha,
+                checksStatus: 'Passing',
+                contextUser: h.contextUser,
+                provider: h.provider,
+            }),
+        ).rejects.toThrow(/Simulated second PR save error/);
+
+        expect(h.txStats.rolledBack).toBe(rollbacksBefore + 1);
+        // Both PRs must still have 'Pending' because the transaction rolled back atomically
+        const prs = Array.from(h.getStore(GITHUB_PR_TASKS_ENTITY).values());
+        expect(prs.every((p) => p.ChecksStatus === 'Pending')).toBe(true);
+    });
+
+    it('accepts Critical and rejects Urgent in GitHubTaskInferenceService (Rule 2c) and wraps supersede+create in BeginEntityTransaction', async () => {
+        const h = buildTestHarness();
+        const taskId = '11111111-2222-4333-8444-555555555555';
+
+        // Seed an existing pending Priority suggestion that should be superseded only if new suggestion commits
+        const priorSuggestionId = '99999999-8888-4777-8666-555555555551';
+        h.getStore(FIELD_SUGGESTIONS_ENTITY_NAME).set(priorSuggestionId, {
+            ID: priorSuggestionId,
+            LinkedEntityID: '11111111-1111-4111-8111-000000000001',
+            LinkedRecordID: taskId,
+            AnchorType: 'Field',
+            AnchorKey: 'Priority',
+            SuggestedValue: '"High"',
+            Outcome: null,
+            IsResolved: false,
+        });
+
+        // 1. 'Urgent' must be rejected (violates CK_Task_Priority)
+        GitHubTaskInferenceService.Instance.SetExtractor({
+            ExtractPlanningSuggestions: async () => ({
+                suggestions: [
+                    {
+                        field: 'Priority',
+                        value: 'Urgent',
+                        confidence: 0.95,
+                        rationale: 'Legacy invalid priority value',
+                    },
+                ],
+                mentionedLogins: [],
+                promptRunId: null,
+            }),
+        });
+
+        const urgentRes = await GitHubTaskInferenceService.Instance.InferTaskPlanningFields({
+            task: {
+                ID: taskId,
+                DueAt: null,
+                HoursEstimated: null,
+                ParentID: null,
+                CategoryID: null,
+                Priority: null,
+            },
+            repositoryId: h.ids.REPO_ALL_ID,
+            repositoryFullName: 'MemberJunction/bizapps-tasks',
+            itemKind: 'issue',
+            number: 950,
+            title: 'Production outage',
+            body: 'Needs immediate attention',
+            milestoneDueAt: null,
+            structuredLogins: [],
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+
+        expect(urgentRes.createdCount).toBe(0);
+        expect(urgentRes.skippedFields).toEqual(['Priority']);
+        expect(h.getStore(FIELD_SUGGESTIONS_ENTITY_NAME).get(priorSuggestionId)?.Outcome).toBeNull();
+
+        // 2. 'Critical' must be accepted and supersede+create must run atomically in a transaction
+        GitHubTaskInferenceService.Instance.SetExtractor({
+            ExtractPlanningSuggestions: async () => ({
+                suggestions: [
+                    {
+                        field: 'Priority',
+                        value: 'Critical',
+                        confidence: 0.96,
+                        rationale: 'Matches CK_Task_Priority Critical value',
+                    },
+                ],
+                mentionedLogins: [],
+                promptRunId: null,
+            }),
+        });
+
+        const originalGetEntityObject = h.provider.GetEntityObject.bind(h.provider);
+        // First simulate a failure on creating the new Field Suggestion -> supersede must roll back!
+        h.provider.GetEntityObject = async (entityName: string) => {
+            const entity = await originalGetEntityObject(entityName);
+            if (entityName === FIELD_SUGGESTIONS_ENTITY_NAME) {
+                entity.Save = async () => {
+                    entity.LatestResult = { CompleteMessage: 'Simulated suggestion insert failure' };
+                    return false;
+                };
+            }
+            return entity;
+        };
+
+        const rollbacksBefore = h.txStats.rolledBack;
+        await expect(
+            GitHubTaskInferenceService.Instance.InferTaskPlanningFields({
+                task: {
+                    ID: taskId,
+                    DueAt: null,
+                    HoursEstimated: null,
+                    ParentID: null,
+                    CategoryID: null,
+                    Priority: null,
+                },
+                repositoryId: h.ids.REPO_ALL_ID,
+                repositoryFullName: 'MemberJunction/bizapps-tasks',
+                itemKind: 'issue',
+                number: 950,
+                title: 'Production outage',
+                body: 'Needs immediate attention',
+                milestoneDueAt: null,
+                structuredLogins: [],
+                contextUser: h.contextUser,
+                provider: h.provider,
+            }),
+        ).rejects.toThrow(/Simulated suggestion insert failure/);
+
+        expect(h.txStats.rolledBack).toBe(rollbacksBefore + 1);
+        // Prior suggestion must STILL be pending because supersede rolled back!
+        expect(h.getStore(FIELD_SUGGESTIONS_ENTITY_NAME).get(priorSuggestionId)?.Outcome).toBeNull();
+        expect(h.getStore(FIELD_SUGGESTIONS_ENTITY_NAME).get(priorSuggestionId)?.IsResolved).toBe(false);
+
+        // Now allow save to succeed -> prior superseded, new 'Critical' suggestion created atomically
+        h.provider.GetEntityObject = originalGetEntityObject;
+        const criticalRes = await GitHubTaskInferenceService.Instance.InferTaskPlanningFields({
+            task: {
+                ID: taskId,
+                DueAt: null,
+                HoursEstimated: null,
+                ParentID: null,
+                CategoryID: null,
+                Priority: null,
+            },
+            repositoryId: h.ids.REPO_ALL_ID,
+            repositoryFullName: 'MemberJunction/bizapps-tasks',
+            itemKind: 'issue',
+            number: 950,
+            title: 'Production outage',
+            body: 'Needs immediate attention',
+            milestoneDueAt: null,
+            structuredLogins: [],
+            contextUser: h.contextUser,
+            provider: h.provider,
+        });
+
+        expect(criticalRes.createdCount).toBe(1);
+        expect(criticalRes.supersededCount).toBe(1);
+        expect(h.getStore(FIELD_SUGGESTIONS_ENTITY_NAME).get(priorSuggestionId)?.Outcome).toBe('Superseded');
+        const created = h.getStore(FIELD_SUGGESTIONS_ENTITY_NAME).get(criticalRes.createdSuggestionIds[0].toLowerCase());
+        expect(created?.SuggestedValue).toBe('"Critical"');
     });
 });
