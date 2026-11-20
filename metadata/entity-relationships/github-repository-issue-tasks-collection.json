@@ -1,0 +1,9 @@
+{
+  "Name": "IssueTasks",
+  "Source": "database",
+  "Load": "explicit",
+  "ReadOnly": true,
+  "OnRemove": "refuse",
+  "OrderBy": "Number DESC",
+  "ClearAfterSave": false
+}

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { IRunViewProvider, RunViewParams, RunViewResult } from '@memberjunction/core';
 import { MJGlobal } from '@memberjunction/global';
 import { BaseFormComponent, BaseFormPanel, FormPanelRegistrationMetadata } from '@memberjunction/ng-base-forms';
 
@@ -210,5 +211,179 @@ describe('@mj-biz-apps/tasks-github-ng Form Registrations & Contributions', () =
 
         expect(panel.TotalLinkedItemsCount).toBe(3);
         expect(panel.HasAnyLinkedItems).toBe(true);
+    });
+
+    it('TaskGitHubLinksPanel avoids redundant double-fetch for self PR/Issue subtype and validates UUIDs', async () => {
+        const taskId = '11111111-1111-4111-8111-111111111111';
+        const queries: RunViewParams[] = [];
+
+        const mockProvider: Partial<IRunViewProvider> = {
+            RunView: vi.fn(async (params: RunViewParams): Promise<RunViewResult> => {
+                queries.push(params);
+                if (params.EntityName === 'MJ_BizApps_Tasks: Task Links') {
+                    return {
+                        Success: true,
+                        Results: [
+                            // Invalid UUID must be ignored before interpolation
+                            { Entity: 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks', RecordID: "' OR 1=1 --" },
+                            // Self PR link already retrieved in first pass must not trigger a second PR query
+                            { Entity: 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks', RecordID: taskId },
+                        ],
+                        RowCount: 2,
+                        TotalRowCount: 2,
+                        ExecutionTime: 1,
+                        ErrorMessage: '',
+                    };
+                }
+                if (params.EntityName === 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks') {
+                    return {
+                        Success: true,
+                        Results: [
+                            {
+                                ID: taskId,
+                                Number: 99,
+                                Name: 'Self PR Task',
+                                State: 'open',
+                                IsDraft: false,
+                                HeadBranch: 'feat/tx',
+                                BaseBranch: 'next',
+                                Additions: 42,
+                                Deletions: 7,
+                                HtmlURL: 'https://github.com/MemberJunction/bizapps-tasks-github/pull/99',
+                            },
+                        ],
+                        RowCount: 1,
+                        TotalRowCount: 1,
+                        ExecutionTime: 1,
+                        ErrorMessage: '',
+                    };
+                }
+                return {
+                    Success: true,
+                    Results: [],
+                    RowCount: 0,
+                    TotalRowCount: 0,
+                    ExecutionTime: 1,
+                    ErrorMessage: '',
+                };
+            }),
+        };
+
+        const panel = new TaskGitHubLinksPanel();
+        panel.FormComponent = {
+            ProviderToUse: mockProvider,
+        } as typeof panel.FormComponent;
+        panel.Record = { ID: taskId } as typeof panel.Record;
+
+        await panel.ngOnInit();
+
+        const prQueries = queries.filter(
+            (q) => q.EntityName === 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks',
+        );
+        // Only ONE PR query (the initial self check); zero redundant second fetch!
+        expect(prQueries).toHaveLength(1);
+        expect(panel.LinkedPullRequests).toHaveLength(1);
+        expect(panel.LinkedPullRequests[0]?.Number).toBe(99);
+        expect(panel.LinkedPullRequests[0]?.BranchFlow).toBe('feat/tx → next');
+
+        // Reject invalid non-UUID Record.ID with zero queries
+        queries.length = 0;
+        panel.Record = { ID: "invalid' OR 1=1--" } as typeof panel.Record;
+        await panel.ngOnInit();
+        expect(queries).toHaveLength(0);
+    });
+
+    it('GitHubRepositoryOverviewPanel reuses loaded IssueTasks/PullRequestTasks collections and rejects invalid UUIDs', async () => {
+        const repoId = '22222222-2222-4222-8222-222222222222';
+        const queries: RunViewParams[] = [];
+
+        const mockProvider: Partial<IRunViewProvider> = {
+            RunView: vi.fn(async (params: RunViewParams): Promise<RunViewResult> => {
+                queries.push(params);
+                return {
+                    Success: true,
+                    Results: [],
+                    RowCount: 0,
+                    TotalRowCount: 4,
+                    ExecutionTime: 1,
+                    ErrorMessage: '',
+                };
+            }),
+        };
+
+        const panel = new GitHubRepositoryOverviewPanel();
+        panel.FormComponent = {
+            ProviderToUse: mockProvider,
+        } as typeof panel.FormComponent;
+
+        type OverviewPanelRecord = typeof panel.Record;
+        const makeRepoRecord = (
+            id: string,
+            issueItems: Array<{ State: 'open' | 'closed' }>,
+            prItems: Array<{ State: 'open' | 'closed' | 'merged' }>,
+            isLoaded: boolean,
+        ): OverviewPanelRecord =>
+            ({
+                ID: id,
+                Owner: 'MemberJunction',
+                Name: 'bizapps-tasks-github',
+                IssueTasks: { IsLoaded: isLoaded, Items: issueItems },
+                PullRequestTasks: { IsLoaded: isLoaded, Items: prItems },
+            }) as OverviewPanelRecord;
+
+        // 1. Pre-loaded RelatedRecordCollections compute counts with ZERO DB queries
+        panel.Record = makeRepoRecord(
+            repoId,
+            [{ State: 'open' }, { State: 'closed' }, { State: 'open' }],
+            [{ State: 'open' }, { State: 'merged' }],
+            true,
+        );
+
+        await panel.ngOnInit();
+        expect(queries).toHaveLength(0);
+        expect(panel.OpenIssueCount).toBe(2);
+        expect(panel.OpenPrCount).toBe(1);
+
+        // 2. Invalid non-UUID ID issues zero queries
+        panel.Record = makeRepoRecord("not-a-uuid'; DROP TABLE x;--", [], [], false);
+        await panel.ngOnInit();
+        expect(queries).toHaveLength(0);
+
+        // 3. Unloaded collections fall back to count_only queries with validated UUID
+        panel.Record = makeRepoRecord(repoId, [], [], false);
+        await panel.ngOnInit();
+        expect(queries).toHaveLength(2);
+        expect(queries.every((q) => q.ResultType === 'count_only')).toBe(true);
+        expect(panel.OpenIssueCount).toBe(4);
+        expect(panel.OpenPrCount).toBe(4);
+    });
+
+    it('GitHubIssueHeroPanel and GitHubPullRequestHeroPanel skip RunView when Record.ID is not a valid UUID', async () => {
+        const queries: RunViewParams[] = [];
+        const mockProvider: Partial<IRunViewProvider> = {
+            RunView: vi.fn(async (params: RunViewParams): Promise<RunViewResult> => {
+                queries.push(params);
+                return {
+                    Success: true,
+                    Results: [],
+                    RowCount: 0,
+                    TotalRowCount: 0,
+                    ExecutionTime: 1,
+                    ErrorMessage: '',
+                };
+            }),
+        };
+
+        const issuePanel = new GitHubIssueHeroPanel();
+        issuePanel.FormComponent = { ProviderToUse: mockProvider } as typeof issuePanel.FormComponent;
+        issuePanel.Record = { ID: "bad'id" } as typeof issuePanel.Record;
+        await issuePanel.ngOnInit();
+
+        const prPanel = new GitHubPullRequestHeroPanel();
+        prPanel.FormComponent = { ProviderToUse: mockProvider } as typeof prPanel.FormComponent;
+        prPanel.Record = { ID: "bad'id" } as typeof prPanel.Record;
+        await prPanel.ngOnInit();
+
+        expect(queries).toHaveLength(0);
     });
 });

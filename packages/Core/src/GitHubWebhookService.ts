@@ -7,7 +7,7 @@ import {
     RunView,
     UserInfo,
 } from '@memberjunction/core';
-import { BaseSingleton, EscapeSQLString } from '@memberjunction/global';
+import { BaseSingleton, EscapeSQLString, GetGlobalObjectStore } from '@memberjunction/global';
 import type { mjBizAppsTasksGitHubGitHubRepositoryEntity } from '@mj-biz-apps/tasks-github-entities';
 import { GITHUB_REPOSITORIES_ENTITY, GitHubTaskSyncService } from './GitHubTaskSyncService.js';
 import { DEFAULT_GITHUB_API_BASE_URL, ResolveGitHubVaultAuth } from './GitHubVaultAuthResolver.js';
@@ -410,12 +410,17 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
     private readonly _reviewStatesByPr = new Map<string, Map<string, 'APPROVED' | 'CHANGES_REQUESTED'>>();
     private _liveStateFetcher: IGitHubLiveStateFetcher = new DefaultGitHubRestLiveStateFetcher();
 
-    public constructor() {
+    protected constructor() {
         super();
     }
 
     public static get Instance(): GitHubWebhookService {
-        return GitHubWebhookService.getInstance<GitHubWebhookService>();
+        const g = GetGlobalObjectStore();
+        const key = '___SINGLETON__GitHubWebhookService';
+        if (g && g[key]) {
+            return g[key] as GitHubWebhookService;
+        }
+        return new GitHubWebhookService();
     }
 
     /**

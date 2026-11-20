@@ -34,7 +34,7 @@ Return a JSON object with:
   "suggestions": [
     {
       "field": "DueAt | HoursEstimated | ParentID | Priority | CategoryID",
-      "value": "ISO-8601 date string | positive number | UUID string | Low|Medium|High|Urgent",
+      "value": "ISO-8601 date string | positive number | UUID string | Low|Medium|High|Critical",
       "confidence": 0.0,
       "rationale": "Concise citation from the text explaining why this value is suggested"
     }

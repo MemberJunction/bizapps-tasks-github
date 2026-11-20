@@ -5,6 +5,7 @@
   },
   "directoryOrder": [
     "entities",
+    "entity-relationships",
     "action-categories",
     "actions",
     "prompts",

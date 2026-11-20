@@ -9,8 +9,9 @@ import {
     RunView,
     UserInfo,
 } from '@memberjunction/core';
-import { BaseSingleton, EscapeSQLString, IsValidUUID, UUIDsEqual } from '@memberjunction/global';
-import type { mjBizAppsTasksTaskEntity } from '@mj-biz-apps/tasks-entities';
+import { BaseSingleton, EscapeSQLString, GetGlobalObjectStore, IsValidUUID, UUIDsEqual } from '@memberjunction/global';
+import { mjBizAppsTasksTaskSchema, type mjBizAppsTasksTaskEntity } from '@mj-biz-apps/tasks-entities';
+import { RunWithEntityTransaction } from './entity-transaction.js';
 import { GitHubFieldOwnershipPolicy } from './GitHubFieldOwnershipPolicy.js';
 import { AssertValidUUID } from './sql-safety.js';
 import type {
@@ -44,8 +45,24 @@ interface RawPromptJsonShape {
     mentionedLogins?: string[];
 }
 
+/**
+ * Valid `Task.Priority` values derived directly from the generated `MJ_BizApps_Tasks: Tasks` entity type.
+ */
+export type TaskPriorityValue = mjBizAppsTasksTaskEntity['Priority'];
+
+/**
+ * Structural task target accepted by `GitHubTaskInferenceService` — satisfied by
+ * `mjBizAppsTasksTaskEntity` and IS-A leaf subtypes (`GitHubIssueTask`, `GitHubPullRequestTask`).
+ */
+export type InferableTaskTarget = Pick<
+    mjBizAppsTasksTaskEntity,
+    'ID' | 'DueAt' | 'HoursEstimated' | 'ParentID' | 'CategoryID'
+> & {
+    Priority: string | null | undefined;
+};
+
 export interface RunTaskInferenceOptions {
-    task: mjBizAppsTasksTaskEntity;
+    task: InferableTaskTarget;
     repositoryId?: string | null;
     repositoryFullName: string;
     itemKind: 'issue' | 'pull_request';
@@ -138,12 +155,17 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
     private _debouncedTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private _inFlightDebounced = new Map<string, Promise<void>>();
 
-    public constructor() {
+    protected constructor() {
         super();
     }
 
     public static get Instance(): GitHubTaskInferenceService {
-        return GitHubTaskInferenceService.getInstance<GitHubTaskInferenceService>();
+        const g = GetGlobalObjectStore();
+        const key = '___SINGLETON__GitHubTaskInferenceService';
+        if (g && g[key]) {
+            return g[key] as GitHubTaskInferenceService;
+        }
+        return new GitHubTaskInferenceService();
     }
 
     public SetExtractor(extractor: IGitHubInferenceExtractor): void {
@@ -330,55 +352,62 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
         }
 
         const ids = await this.resolveCommentSuggestionMetadataIds(rv, contextUser);
-        let supersededCount = 0;
-        const createdSuggestionIds: string[] = [];
+        const { supersededCount, createdSuggestionIds } = await RunWithEntityTransaction(md, async () => {
+            let localSupersededCount = 0;
+            const localCreatedIds: string[] = [];
 
-        for (const candidate of eligibleCandidates) {
-            supersededCount += await this.SupersedePendingSuggestionsForField(
-                tasksEntityInfo.ID,
-                task.ID,
-                candidate.field,
-                contextUser,
-                md,
-                rv,
-            );
+            for (const candidate of eligibleCandidates) {
+                localSupersededCount += await this.SupersedePendingSuggestionsForField(
+                    tasksEntityInfo.ID,
+                    task.ID,
+                    candidate.field,
+                    contextUser,
+                    md,
+                    rv,
+                );
 
-            const suggestion = await md.GetEntityObject<IFieldSuggestionEntityRecord>(
-                FIELD_SUGGESTIONS_ENTITY_NAME,
-                contextUser,
-            );
-            suggestion.NewRecord();
-            suggestion.UserID = contextUser.ID;
-            suggestion.EnvironmentID = ids.environmentId;
-            suggestion.TypeID = ids.commentConversationTypeId;
-            suggestion.CommentTypeID = ids.fieldSuggestionCommentTypeId;
-            suggestion.Name = `Suggested ${candidate.field} for #${number}`;
-            suggestion.Description = candidate.rationale || `Inferred ${candidate.field} from GitHub ${itemKind} #${number}.`;
-            suggestion.Status = 'Available';
-            suggestion.ApplicationScope = 'Global';
-            suggestion.IsArchived = false;
-            suggestion.IsPinned = false;
-            suggestion.IsResolved = false;
-            suggestion.LinkedEntityID = tasksEntityInfo.ID;
-            suggestion.LinkedRecordID = task.ID;
-            suggestion.AnchorType = 'Field';
-            suggestion.AnchorKey = candidate.field;
-            suggestion.SuggestedValue = this.serializeSuggestedValue(candidate.field, candidate.value);
-            suggestion.Confidence = Number(candidate.confidence.toFixed(4));
-            suggestion.Source = 'LLM';
-            suggestion.Outcome = null;
-            if (typeof extraction.promptRunId === 'string' && IsValidUUID(extraction.promptRunId)) {
-                suggestion.AIPromptRunID = extraction.promptRunId;
+                const suggestion = await md.GetEntityObject<IFieldSuggestionEntityRecord>(
+                    FIELD_SUGGESTIONS_ENTITY_NAME,
+                    contextUser,
+                );
+                suggestion.NewRecord();
+                suggestion.UserID = contextUser.ID;
+                suggestion.EnvironmentID = ids.environmentId;
+                suggestion.TypeID = ids.commentConversationTypeId;
+                suggestion.CommentTypeID = ids.fieldSuggestionCommentTypeId;
+                suggestion.Name = `Suggested ${candidate.field} for #${number}`;
+                suggestion.Description = candidate.rationale || `Inferred ${candidate.field} from GitHub ${itemKind} #${number}.`;
+                suggestion.Status = 'Available';
+                suggestion.ApplicationScope = 'Global';
+                suggestion.IsArchived = false;
+                suggestion.IsPinned = false;
+                suggestion.IsResolved = false;
+                suggestion.LinkedEntityID = tasksEntityInfo.ID;
+                suggestion.LinkedRecordID = task.ID;
+                suggestion.AnchorType = 'Field';
+                suggestion.AnchorKey = candidate.field;
+                suggestion.SuggestedValue = this.serializeSuggestedValue(candidate.field, candidate.value);
+                suggestion.Confidence = Number(candidate.confidence.toFixed(4));
+                suggestion.Source = 'LLM';
+                suggestion.Outcome = null;
+                if (typeof extraction.promptRunId === 'string' && IsValidUUID(extraction.promptRunId)) {
+                    suggestion.AIPromptRunID = extraction.promptRunId;
+                }
+
+                const saved = await suggestion.Save();
+                if (!saved) {
+                    const errMsg = suggestion.LatestResult?.CompleteMessage ?? 'Unknown save error';
+                    LogError(`Failed saving MJ: Field Suggestions for '${candidate.field}': ${errMsg}`);
+                    throw new Error(`Failed saving MJ: Field Suggestions for '${candidate.field}': ${errMsg}`);
+                }
+                localCreatedIds.push(suggestion.ID);
             }
 
-            const saved = await suggestion.Save();
-            if (!saved) {
-                const errMsg = suggestion.LatestResult?.CompleteMessage ?? 'Unknown save error';
-                LogError(`Failed saving MJ: Field Suggestions for '${candidate.field}': ${errMsg}`);
-                throw new Error(`Failed saving MJ: Field Suggestions for '${candidate.field}': ${errMsg}`);
-            }
-            createdSuggestionIds.push(suggestion.ID);
-        }
+            return {
+                supersededCount: localSupersededCount,
+                createdSuggestionIds: localCreatedIds,
+            };
+        });
 
         return {
             createdCount: createdSuggestionIds.length,
@@ -426,43 +455,50 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
             throw new Error(`Failed querying pending Field Suggestions: ${pendingResult.ErrorMessage}`);
         }
 
-        let count = 0;
-        for (const existing of pendingResult.Results ?? []) {
-            existing.Outcome = 'Superseded';
-            existing.IsResolved = true;
-            existing.ResolvedByUserID = contextUser.ID;
-            existing.ResolvedAt = new Date();
-            const saved = await existing.Save();
-            if (saved) {
-                count += 1;
-                continue;
-            }
-            const entityCopy = await md.GetEntityObject<IFieldSuggestionEntityRecord>(
-                FIELD_SUGGESTIONS_ENTITY_NAME,
-                contextUser,
-            );
-            const loaded = await entityCopy.Load(existing.ID);
-            if (!loaded) {
-                LogError(`Failed reloading Field Suggestion '${existing.ID}' during supersede retry`);
-                continue;
-            }
-            entityCopy.Outcome = 'Superseded';
-            entityCopy.IsResolved = true;
-            entityCopy.ResolvedByUserID = contextUser.ID;
-            entityCopy.ResolvedAt = new Date();
-            const retrySaved = await entityCopy.Save();
-            if (!retrySaved) {
-                const msg = `Failed superseding Field Suggestion '${existing.ID}': ${entityCopy.LatestResult?.CompleteMessage ?? 'save failed'}`;
-                LogError(msg);
-                throw new Error(msg);
-            }
-            count += 1;
+        const pendingRows = pendingResult.Results ?? [];
+        if (pendingRows.length === 0) {
+            return 0;
         }
-        return count;
+
+        return RunWithEntityTransaction(md, async () => {
+            let count = 0;
+            for (const existing of pendingRows) {
+                existing.Outcome = 'Superseded';
+                existing.IsResolved = true;
+                existing.ResolvedByUserID = contextUser.ID;
+                existing.ResolvedAt = new Date();
+                const saved = await existing.Save();
+                if (saved) {
+                    count += 1;
+                    continue;
+                }
+                const entityCopy = await md.GetEntityObject<IFieldSuggestionEntityRecord>(
+                    FIELD_SUGGESTIONS_ENTITY_NAME,
+                    contextUser,
+                );
+                const loaded = await entityCopy.Load(existing.ID);
+                if (!loaded) {
+                    LogError(`Failed reloading Field Suggestion '${existing.ID}' during supersede retry`);
+                    continue;
+                }
+                entityCopy.Outcome = 'Superseded';
+                entityCopy.IsResolved = true;
+                entityCopy.ResolvedByUserID = contextUser.ID;
+                entityCopy.ResolvedAt = new Date();
+                const retrySaved = await entityCopy.Save();
+                if (!retrySaved) {
+                    const msg = `Failed superseding Field Suggestion '${existing.ID}': ${entityCopy.LatestResult?.CompleteMessage ?? 'save failed'}`;
+                    LogError(msg);
+                    throw new Error(msg);
+                }
+                count += 1;
+            }
+            return count;
+        });
     }
 
     private isFieldEligibleForSuggestion(
-        task: mjBizAppsTasksTaskEntity,
+        task: InferableTaskTarget,
         field: TasksOwnedPlanningFieldName,
         value: string | number,
         milestoneDueAt: string | null,
@@ -510,18 +546,17 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
                 if (task.Priority != null && String(task.Priority).trim().length > 0) {
                     return false;
                 }
-                return (
-                    typeof value === 'string' &&
-                    (['Low', 'Medium', 'High', 'Urgent'] as const).includes(
-                        value as 'Low' | 'Medium' | 'High' | 'Urgent',
-                    )
-                );
+                return typeof value === 'string' && this.isValidTaskPriority(value);
             }
             default: {
                 const _exhaustive: never = field;
                 return _exhaustive;
             }
         }
+    }
+
+    private isValidTaskPriority(value: string): value is TaskPriorityValue {
+        return mjBizAppsTasksTaskSchema.shape.Priority.safeParse(value).success;
     }
 
     private serializeSuggestedValue(field: TasksOwnedPlanningFieldName, value: string | number): string {

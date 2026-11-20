@@ -884,3 +884,108 @@ export function BuildGitHubTasksAdminAgentContext(params: {
         RecentWebhookDeliveryCount: params.webhookDeliveries.length,
     };
 }
+
+// ============================================================================
+// Sync Summary Aggregation Helpers
+// ============================================================================
+
+interface RawSyncSummaryEntry {
+    repositoriesSynced?: number;
+    created?: number;
+    updated?: number;
+    skipped?: number;
+    errors?: number | string[];
+}
+
+export interface AggregatedGitHubSyncSummary {
+    RepositoriesSynced: number;
+    Created: number;
+    Updated: number;
+    Skipped: number;
+    Errors: number;
+}
+
+function readNumericCount(value: number | undefined): number {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function readErrorCount(value: number | string[] | undefined): number {
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+        return value;
+    }
+    if (Array.isArray(value)) {
+        return value.length;
+    }
+    return 0;
+}
+
+/**
+ * Parses `SummaryJSON` emitted by `SyncGitHubRepositoryTasksAction` (which serializes
+ * `RepositorySyncSummary[]`) and aggregates counts across all repositories while remaining
+ * backwards-compatible with single summary objects.
+ */
+export function AggregateGitHubSyncSummaryJson(
+    summaryJson: string | null | undefined,
+): AggregatedGitHubSyncSummary | null {
+    if (!summaryJson || !summaryJson.trim()) {
+        return null;
+    }
+    try {
+        const parsed: RawSyncSummaryEntry | RawSyncSummaryEntry[] = JSON.parse(summaryJson);
+        if (Array.isArray(parsed)) {
+            let created = 0;
+            let updated = 0;
+            let skipped = 0;
+            let errors = 0;
+            for (const entry of parsed) {
+                if (!entry || typeof entry !== 'object') {
+                    continue;
+                }
+                created += readNumericCount(entry.created);
+                updated += readNumericCount(entry.updated);
+                skipped += readNumericCount(entry.skipped);
+                errors += readErrorCount(entry.errors);
+            }
+            return {
+                RepositoriesSynced: parsed.length,
+                Created: created,
+                Updated: updated,
+                Skipped: skipped,
+                Errors: errors,
+            };
+        }
+        if (parsed && typeof parsed === 'object') {
+            return {
+                RepositoriesSynced:
+                    typeof parsed.repositoriesSynced === 'number' && Number.isFinite(parsed.repositoriesSynced)
+                        ? parsed.repositoriesSynced
+                        : 1,
+                Created: readNumericCount(parsed.created),
+                Updated: readNumericCount(parsed.updated),
+                Skipped: readNumericCount(parsed.skipped),
+                Errors: readErrorCount(parsed.errors),
+            };
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Formats a human-readable banner message from `SyncGitHubRepositoryTasksAction`'s `SummaryJSON` output.
+ */
+export function FormatGitHubSyncSummaryMessage(
+    scopeLabel: string,
+    summaryJson: string | null | undefined,
+): string {
+    const agg = AggregateGitHubSyncSummaryJson(summaryJson);
+    if (!agg) {
+        return `Synchronized GitHub issues and pull requests for ${scopeLabel}.`;
+    }
+    const base = `Synchronized ${scopeLabel}: ${agg.Created} created, ${agg.Updated} updated, ${agg.Skipped} skipped`;
+    if (agg.Errors > 0) {
+        return `${base} (${agg.Errors} ${agg.Errors === 1 ? 'error' : 'errors'}).`;
+    }
+    return `${base}.`;
+}

@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { Injector, runInInjectionContext } from '@angular/core';
+import type { IMetadataProvider, IRunViewProvider, RunViewParams, RunViewResult, UserInfo } from '@memberjunction/core';
+import { NavigationService } from '@memberjunction/ng-shared';
 import {
+    AggregateGitHubSyncSummaryJson,
     BuildGitHubIssueBadgeViewModel,
     BuildGitHubPullRequestBadgeViewModel,
     BuildGitHubTaskDetailBadgeViewModel,
@@ -9,7 +13,10 @@ import {
     BuildWebhookDeliveryRows,
     ExtractRepoFullNameFromHtmlUrl,
     FilterTrackedRepositoryCards,
+    FormatGitHubSyncSummaryMessage,
+    GitHubTasksAdminResource,
     LoadBizAppsTasksGitHubClient,
+    PEOPLE_ENTITY_NAME,
     PULL_OWNED_FIELD_LOCK_NOTICE,
     ParseGitHubLabelsJson,
     ParseGitHubTasksAdminTab,
@@ -337,6 +344,155 @@ describe('@mj-biz-apps/tasks-github-ng UI helpers & view-model builders', () => 
             expect(typeof LoadBizAppsTasksGitHubClient).toBe('function');
             expect(() => LoadBizAppsTasksGitHubClient()).not.toThrow();
             expect(TasksGitHubAngularModule).toBeDefined();
+        });
+    });
+
+    describe('SyncGitHubRepositoryTasks SummaryJSON aggregation & GitHubTasksAdminResource scoped People lookup', () => {
+        it('aggregates RepositorySyncSummary[] arrays, supports legacy single-object fallback, and handles malformed JSON', () => {
+            const arrayJson = JSON.stringify([
+                {
+                    repositoryId: '20000000-0000-4000-8000-000000000001',
+                    repositoryFullName: 'MemberJunction/MJ',
+                    created: 4,
+                    updated: 7,
+                    skipped: 2,
+                    taskIds: [],
+                },
+                {
+                    repositoryId: '20000000-0000-4000-8000-000000000002',
+                    repositoryFullName: 'MemberJunction/bizapps-tasks-github',
+                    created: 3,
+                    updated: 1,
+                    skipped: 5,
+                    errors: ['rate limit warning'],
+                    taskIds: [],
+                },
+            ]);
+
+            expect(AggregateGitHubSyncSummaryJson(arrayJson)).toEqual({
+                RepositoriesSynced: 2,
+                Created: 7,
+                Updated: 8,
+                Skipped: 7,
+                Errors: 1,
+            });
+            expect(FormatGitHubSyncSummaryMessage('all tracked repositories', arrayJson)).toBe(
+                'Synchronized all tracked repositories: 7 created, 8 updated, 7 skipped (1 error).',
+            );
+
+            // Single-element array (exact shape returned by SyncGitHubRepositoryTasksAction for one repo)
+            const singleArrayJson = JSON.stringify([
+                { created: 2, updated: 5, skipped: 1 },
+            ]);
+            expect(FormatGitHubSyncSummaryMessage('MemberJunction/MJ', singleArrayJson)).toBe(
+                'Synchronized MemberJunction/MJ: 2 created, 5 updated, 1 skipped.',
+            );
+
+            // Legacy single-object payload remains backwards-compatible
+            const singleObjJson = JSON.stringify({ created: 1, updated: 3, skipped: 4 });
+            expect(FormatGitHubSyncSummaryMessage('MemberJunction/MJ', singleObjJson)).toBe(
+                'Synchronized MemberJunction/MJ: 1 created, 3 updated, 4 skipped.',
+            );
+
+            // Empty / invalid JSON falls back cleanly
+            expect(FormatGitHubSyncSummaryMessage('MemberJunction/MJ', null)).toBe(
+                'Synchronized GitHub issues and pull requests for MemberJunction/MJ.',
+            );
+            expect(FormatGitHubSyncSummaryMessage('MemberJunction/MJ', '{bad-json')).toBe(
+                'Synchronized GitHub issues and pull requests for MemberJunction/MJ.',
+            );
+        });
+
+        it('issues a scoped People lookup (never an unbounded full-table scan) during GitHubTasksAdminResource.LoadData', async () => {
+            const seenQueries: RunViewParams[] = [];
+            const currentUser = {
+                ID: '99999999-9999-4999-8999-000000000001',
+                Email: 'ada@example.com',
+                Name: 'Ada Lovelace',
+                FirstLast: 'Ada Lovelace',
+            } as UserInfo;
+
+            const fakeRunViewProvider: Partial<IRunViewProvider> = {
+                RunView: vi.fn(async (params: RunViewParams): Promise<RunViewResult> => {
+                    seenQueries.push(params);
+                    if (params.EntityName === PEOPLE_ENTITY_NAME) {
+                        return {
+                            Success: true,
+                            Results: [
+                                {
+                                    ID: '11111111-1111-4111-8111-111111111111',
+                                    FirstName: 'Ada',
+                                    LastName: 'Lovelace',
+                                    Email: 'ada@example.com',
+                                    LinkedUserID: currentUser.ID,
+                                    Status: 'Active',
+                                },
+                            ],
+                            RowCount: 1,
+                            TotalRowCount: 1,
+                            ExecutionTime: 1,
+                            ErrorMessage: '',
+                        };
+                    }
+                    return {
+                        Success: true,
+                        Results: [],
+                        RowCount: 0,
+                        TotalRowCount: 0,
+                        ExecutionTime: 1,
+                        ErrorMessage: '',
+                    };
+                }),
+                RunViews: vi.fn(async (views: RunViewParams[]): Promise<RunViewResult[]> => {
+                    seenQueries.push(...views);
+                    return views.map(() => ({
+                        Success: true,
+                        Results: [],
+                        RowCount: 0,
+                        TotalRowCount: 0,
+                        ExecutionTime: 1,
+                        ErrorMessage: '',
+                    }));
+                }),
+            };
+
+            const fakeProvider: Partial<IMetadataProvider & IRunViewProvider> = {
+                ...fakeRunViewProvider,
+                CurrentUser: currentUser,
+                Entities: [],
+            };
+
+            const injector = Injector.create({
+                providers: [
+                    {
+                        provide: NavigationService,
+                        useValue: {
+                            SetAgentClientTools: vi.fn(),
+                            SetAgentContext: vi.fn(),
+                            UpdateActiveTabQueryParams: vi.fn(),
+                        },
+                    },
+                ],
+            });
+            const resource = runInInjectionContext(injector, () => new GitHubTasksAdminResource());
+            Object.defineProperty(resource, 'ProviderToUse', {
+                get: () => fakeProvider as IMetadataProvider,
+            });
+            Object.defineProperty(resource, 'RunViewToUse', {
+                get: () => fakeRunViewProvider as IRunViewProvider,
+            });
+
+            await resource.LoadData();
+
+            const peopleQueries = seenQueries.filter((q) => q.EntityName === PEOPLE_ENTITY_NAME);
+            expect(peopleQueries.length).toBeGreaterThanOrEqual(1);
+            for (const q of peopleQueries) {
+                // Must NEVER scan the full People table without an ExtraFilter
+                expect(q.ExtraFilter).toBeTruthy();
+                expect(q.MaxRows).toBeLessThanOrEqual(5);
+            }
+            expect(resource.IdentityViewModel.PersonID).toBe('11111111-1111-4111-8111-111111111111');
+            expect(resource.IdentityViewModel.LinkStatus).toBe('Unlinked');
         });
     });
 });

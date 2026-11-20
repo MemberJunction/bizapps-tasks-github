@@ -1,6 +1,6 @@
 import { Component, OnInit, ChangeDetectorRef, inject } from '@angular/core';
 import { CompositeKey, RunView } from '@memberjunction/core';
-import { RegisterClassEx } from '@memberjunction/global';
+import { IsValidUUID, RegisterClassEx } from '@memberjunction/global';
 import { BaseFormPanel } from '@memberjunction/ng-base-forms';
 import { NavigationService } from '@memberjunction/ng-shared';
 import type { mjBizAppsTasksGitHubGitHubRepositoryEntity } from '@mj-biz-apps/tasks-github-entities';
@@ -105,33 +105,58 @@ export class GitHubRepositoryOverviewPanel extends BaseFormPanel<mjBizAppsTasksG
     }
 
     private async loadLiveCounts(): Promise<void> {
-        const repoId = this.Record?.ID;
-        if (!repoId) return;
+        const rawRepoId = this.Record?.ID;
+        if (!rawRepoId || !IsValidUUID(rawRepoId)) return;
+        const repoId = rawRepoId.trim();
+
+        const prCollectionLoaded = this.Record?.PullRequestTasks?.IsLoaded === true;
+        const issueCollectionLoaded = this.Record?.IssueTasks?.IsLoaded === true;
+
+        if (prCollectionLoaded) {
+            this.OpenPrCount = this.Record.PullRequestTasks.Items.filter((pr) => pr.State === 'open').length;
+        }
+        if (issueCollectionLoaded) {
+            this.OpenIssueCount = this.Record.IssueTasks.Items.filter((issue) => issue.State === 'open').length;
+        }
+        if (prCollectionLoaded && issueCollectionLoaded) {
+            this.cdr?.detectChanges();
+            return;
+        }
 
         this.IsLoadingCounts = true;
         try {
             const rv = RunView.FromMetadataProvider(this.FormComponent?.ProviderToUse);
+            const tasks: Promise<void>[] = [];
 
-            const prPromise = rv.RunView({
-                EntityName: 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks',
-                ExtraFilter: `RepositoryID = '${repoId}' AND State = 'open'`,
-                ResultType: 'count_only',
-            });
-
-            const issuePromise = rv.RunView({
-                EntityName: 'MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks',
-                ExtraFilter: `RepositoryID = '${repoId}' AND State = 'open'`,
-                ResultType: 'count_only',
-            });
-
-            const [prResult, issueResult] = await Promise.all([prPromise, issuePromise]);
-
-            if (prResult.Success) {
-                this.OpenPrCount = prResult.TotalRowCount ?? 0;
+            if (!prCollectionLoaded) {
+                tasks.push(
+                    rv.RunView({
+                        EntityName: 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks',
+                        ExtraFilter: `RepositoryID = '${repoId}' AND State = 'open'`,
+                        ResultType: 'count_only',
+                    }).then((prResult) => {
+                        if (prResult.Success) {
+                            this.OpenPrCount = prResult.TotalRowCount ?? 0;
+                        }
+                    }),
+                );
             }
-            if (issueResult.Success) {
-                this.OpenIssueCount = issueResult.TotalRowCount ?? 0;
+
+            if (!issueCollectionLoaded) {
+                tasks.push(
+                    rv.RunView({
+                        EntityName: 'MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks',
+                        ExtraFilter: `RepositoryID = '${repoId}' AND State = 'open'`,
+                        ResultType: 'count_only',
+                    }).then((issueResult) => {
+                        if (issueResult.Success) {
+                            this.OpenIssueCount = issueResult.TotalRowCount ?? 0;
+                        }
+                    }),
+                );
             }
+
+            await Promise.all(tasks);
         } catch {
             // Non-blocking for UI render
         } finally {
