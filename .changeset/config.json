@@ -7,7 +7,8 @@
       "@mj-biz-apps/tasks-github-entities",
       "@mj-biz-apps/tasks-github-core",
       "@mj-biz-apps/tasks-github-actions",
-      "@mj-biz-apps/tasks-github-server"
+      "@mj-biz-apps/tasks-github-server",
+      "@mj-biz-apps/tasks-github-ng"
     ]
   ],
   "linked": [],

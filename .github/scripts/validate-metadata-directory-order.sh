@@ -3,7 +3,7 @@
 # Folders left out of the list are pushed after it in alphabetical order, so a
 # folder whose rows reference another folder's rows can be pushed first. On a
 # fresh database that fails the foreign key and rolls back the whole push
-# (bizapps-accounting#222). Listing every folder keeps the push order explicit.
+# in prior sync runs. Listing every folder keeps the push order explicit.
 #
 # It checks that each folder is listed, not that the list is in dependency order.
 
