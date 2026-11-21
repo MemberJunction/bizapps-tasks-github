@@ -1,0 +1,23 @@
+[
+  {
+    "fields": {
+      "AgentID": "@lookup:MJ: AI Agents.Name=Chief of Staff",
+      "SkillID": "@lookup:MJ: AI Skills.ID=85258800-163B-4409-BA2F-2F3B8AF556C0",
+      "Name": "PRs Waiting On You",
+      "WorkstreamKey": "github-review-queue",
+      "Description": "Weekday morning review-queue digest surfacing open GitHub pull requests waiting on your review (oldest and stale >24h first) alongside CI or review blockers on your own open PRs.",
+      "DefaultCronExpression": "45 8 * * 1-5",
+      "DefaultWakeGate": "{\"watchedEntities\":[{\"entityName\":\"MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks\",\"alias\":\"pullRequests\"},{\"entityName\":\"MJ_BizApps_Tasks: Task Assignments\",\"alias\":\"assignments\"}],\"wakeGate\":{\"skipIfUnchanged\":true,\"forceWakeAfterMinutes\":1440}}",
+      "WakeReason": "Review-queue check via Get GitHub Reviews Waiting On Me and Get My GitHub PRs: surface open PRs awaiting the user's review (highlighting stale >24h requests oldest first with GitHub links) plus any failing CI or changes-requested blockers on the user's own PRs; stay silent when clear.",
+      "OfferAt": "Both",
+      "Status": "Active"
+    },
+    "primaryKey": {
+      "ID": "87F3CA32-1D21-4B13-95BB-EC56F3DB48F3"
+    },
+    "sync": {
+      "lastModified": "2026-11-21T16:04:07.610Z",
+      "checksum": "94e6c9a12f9a16384a39e457ac61bc8268504141a1277db5ae66bf5c63ae58b8"
+    }
+  }
+]
