@@ -1160,7 +1160,8 @@ describe('Chief of Staff GitHub Extensible Skills Actions', () => {
             expect(IsValidUUID(prQueue.primaryKey.ID)).toBe(true);
             expect(prQueue.fields).toMatchObject({
                 AgentID: '@lookup:MJ: AI Agents.Name=Chief of Staff',
-                SkillID: '@lookup:MJ: AI Skills.Name=GitHub Tasks & Pull Requests',
+                // By the skill's fixed primaryKey, as the metadata writes it: a rename cannot break the link.
+                SkillID: '@lookup:MJ: AI Skills.ID=85258800-163B-4409-BA2F-2F3B8AF556C0',
                 Name: 'PRs Waiting On You',
                 WorkstreamKey: 'github-review-queue',
                 DefaultCronExpression: '45 8 * * 1-5',
