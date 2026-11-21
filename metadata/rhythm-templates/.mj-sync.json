@@ -1,0 +1,5 @@
+{
+  "entity": "MJ: AI Agent Rhythm Templates",
+  "filePattern": "**/.*.json",
+  "ignoreFiles": [".mj-sync.json"]
+}

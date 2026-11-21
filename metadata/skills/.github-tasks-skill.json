@@ -2,7 +2,7 @@
   {
     "fields": {
       "Name": "GitHub Tasks & Pull Requests",
-      "Description": "Synchronizes GitHub Issues and Pull Requests with BizApps Tasks, respects pull-only GitHub field ownership vs Tasks planning fields, manages Field Suggestions, and wraps MemberJunction 6.3 GitHub repository, issue, pull-request, review, merge, and workflow actions for Chief of Staff and Software Factory agents.",
+      "Description": "Tracks GitHub Issues and Pull Requests connected to BizApps Tasks with strongly-typed Chief of Staff tools for PR status checks, review queue triage, and deterministic morning briefing assembly, while preserving pull-only GitHub field ownership and keeping bulk sync/inference operator actions out of default model exposure.",
       "Instructions": "@file:templates/github-tasks.skill.md",
       "Status": "Active",
       "ActivationMode": "Auto",
@@ -19,10 +19,15 @@
           "fields": {
             "AgentID": "@lookup:MJ: AI Agents.Name=Chief of Staff",
             "SkillID": "@parent:ID",
-            "Status": "Active"
+            "Status": "Active",
+            "AllowMetadataSyncUpdate": true
           },
           "primaryKey": {
             "ID": "7FA02810-2460-411A-90C1-E9A4835F3084"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:07.416Z",
+            "checksum": "591a1f357a8b3456ab40970d75895d198e046d5ac09526a13498f9b2ec98d3f0"
           }
         }
       ],
@@ -30,22 +35,83 @@
         {
           "fields": {
             "SkillID": "@parent:ID",
-            "ActionID": "@lookup:MJ: Actions.Name=Sync GitHub Repository Tasks"
+            "ActionID": "@lookup:MJ: Actions.Name=Get My GitHub PRs",
+            "Role": "Tool",
+            "ExposeToModel": true
           },
           "primaryKey": {
-            "ID": "BBE38224-529A-4F86-A7B7-9BF99D3CC0F8"
+            "ID": "1005D42E-512F-42D4-A0EE-877F52ACF5A5"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:07.439Z",
+            "checksum": "c55c0511201ec81e5d635d92198953dda5bcb5d858257336c1883c36fdf8f16c"
           }
         },
         {
           "fields": {
             "SkillID": "@parent:ID",
-            "ActionID": "@lookup:MJ: Actions.Name=Infer GitHub Task Planning Fields"
+            "ActionID": "@lookup:MJ: Actions.Name=Get GitHub Reviews Waiting On Me",
+            "Role": "Tool",
+            "ExposeToModel": true
+          },
+          "primaryKey": {
+            "ID": "C8D59A8F-2DF7-4192-B94E-BB9006C9E4A9"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:07.456Z",
+            "checksum": "25d5eaa6b126e6ef7d83f8f0bae5353362f56cb6e6f993a935abe36e9a4e78b2"
+          }
+        },
+        {
+          "fields": {
+            "SkillID": "@parent:ID",
+            "ActionID": "@lookup:MJ: Actions.Name=Get My GitHub Briefing",
+            "Role": "Briefing",
+            "ExposeToModel": false
+          },
+          "primaryKey": {
+            "ID": "260B5FA1-A8C3-4691-963A-35CD3C6AFAB0"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:07.478Z",
+            "checksum": "1534c4460c2c843d7b1775cdb767ad0340cf21a55802887fd9191aea9a9d5c65"
+          }
+        },
+        {
+          "fields": {
+            "SkillID": "@parent:ID",
+            "ActionID": "@lookup:MJ: Actions.Name=Sync GitHub Repository Tasks",
+            "Role": "Tool",
+            "ExposeToModel": false
+          },
+          "primaryKey": {
+            "ID": "BBE38224-529A-4F86-A7B7-9BF99D3CC0F8"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:07.496Z",
+            "checksum": "26e133a2da28f01d8fec52ad8a3b3237e5ecbcc016561e5bf407d6b8ca88d989"
+          }
+        },
+        {
+          "fields": {
+            "SkillID": "@parent:ID",
+            "ActionID": "@lookup:MJ: Actions.Name=Infer GitHub Task Planning Fields",
+            "Role": "Tool",
+            "ExposeToModel": false
           },
           "primaryKey": {
             "ID": "F1DAEC90-2EA2-4486-8185-FA476AFB3547"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:07.513Z",
+            "checksum": "ab9c8c5632a5b76e3057859467bb17b8197417cc8d6d0d1440441b652cf5e27c"
           }
         }
       ]
+    },
+    "sync": {
+      "lastModified": "2026-11-21T16:04:07.393Z",
+      "checksum": "195347bdd1ae6832f401732def91c5902207cf519d20a0474fd37461e4537be0"
     }
   }
 ]

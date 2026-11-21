@@ -6,6 +6,39 @@
 DELETE FROM [${mjSchema}].[ApplicationSetting]
  WHERE [Name] LIKE N'NavItem.bizapps-tasks-github.%';
 
+-- 0b. Disable materialized Chief of Staff AgentWake routines, remove offered GitHub rhythm templates and proactive suggestions
+IF OBJECT_ID(N'[${mjSchema}].[UserRoutine]', N'U') IS NOT NULL
+BEGIN
+    EXEC sp_executesql N'
+        UPDATE [${mjSchema}].[UserRoutine]
+           SET [Status] = N''Disabled''
+         WHERE [RoutineType] = N''AgentWake''
+           AND [Status] <> N''Disabled''
+           AND [WakeConfiguration] LIKE N''%"github-review-queue"%'';
+    ';
+END
+
+IF OBJECT_ID(N'[${mjSchema}].[AIAgentRhythmTemplate]', N'U') IS NOT NULL
+BEGIN
+    EXEC sp_executesql N'
+        DELETE FROM [${mjSchema}].[AIAgentRhythmTemplate]
+         WHERE [ID] = ''87F3CA32-1D21-4B13-95BB-EC56F3DB48F3''
+            OR [WorkstreamKey] = N''github-review-queue''
+            OR [SkillID] IN (SELECT [ID] FROM [${mjSchema}].[AISkill] WHERE [Name] = N''GitHub Tasks & Pull Requests'');
+    ';
+END
+
+IF OBJECT_ID(N'[${mjSchema}].[AIAgentSuggestion]', N'U') IS NOT NULL
+BEGIN
+    EXEC sp_executesql N'
+        DELETE FROM [${mjSchema}].[AIAgentSuggestion]
+         WHERE [TargetKey] IN (
+             N''github-review-queue'',
+             N''GitHub Tasks & Pull Requests''
+         );
+    ';
+END
+
 -- 1. Retire "GitHub Tasks & Pull Requests" skill and grants
 UPDATE [${mjSchema}].[SearchExecutionLog]
    SET [AISkillID] = NULL
@@ -190,7 +223,10 @@ SELECT [ID]
  WHERE [Name] IN (
      N'Sync GitHub Repository Tasks',
      N'Handle GitHub Tasks Webhook',
-     N'Infer GitHub Task Planning Fields'
+     N'Infer GitHub Task Planning Fields',
+     N'Get My GitHub PRs',
+     N'Get GitHub Reviews Waiting On Me',
+     N'Get My GitHub Briefing'
  );
 
 DECLARE @GitHubActionExecutionLogIDs TABLE ([ID] UNIQUEIDENTIFIER NOT NULL PRIMARY KEY);
@@ -220,13 +256,13 @@ BEGIN
              SELECT [ID] FROM [${mjSchema}].[ScheduledAction]
               WHERE [ActionID] IN (
                   SELECT [ID] FROM [${mjSchema}].[Action]
-                   WHERE [Name] IN (N''Sync GitHub Repository Tasks'', N''Handle GitHub Tasks Webhook'', N''Infer GitHub Task Planning Fields'')
+                   WHERE [Name] IN (N''Sync GitHub Repository Tasks'', N''Handle GitHub Tasks Webhook'', N''Infer GitHub Task Planning Fields'', N''Get My GitHub PRs'', N''Get GitHub Reviews Waiting On Me'', N''Get My GitHub Briefing'')
               )
          );
         DELETE FROM [${mjSchema}].[ScheduledAction]
          WHERE [ActionID] IN (
              SELECT [ID] FROM [${mjSchema}].[Action]
-              WHERE [Name] IN (N''Sync GitHub Repository Tasks'', N''Handle GitHub Tasks Webhook'', N''Infer GitHub Task Planning Fields'')
+              WHERE [Name] IN (N''Sync GitHub Repository Tasks'', N''Handle GitHub Tasks Webhook'', N''Infer GitHub Task Planning Fields'', N''Get My GitHub PRs'', N''Get GitHub Reviews Waiting On Me'', N''Get My GitHub Briefing'')
          );
     ';
 END

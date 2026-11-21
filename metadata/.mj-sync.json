@@ -11,6 +11,7 @@
     "prompts",
     "task-types",
     "skills",
+    "rhythm-templates",
     "tasks-nav-items"
   ],
   "emitSyncNotes": false,
