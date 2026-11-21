@@ -19,7 +19,7 @@ jobs:
   build:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -45,8 +45,11 @@ jobs:
           node ./.github/scripts/check-migration-entityfield-sequence.mjs
           node ./.github/scripts/check-migration-no-prune.mjs
 
+      # PRs into next (and next itself) build against MJ next and the sibling apps' next, from
+      # source, in one generated pnpm workspace; release PRs and lts/* lines install the committed
+      # lockfile, i.e. the published versions. See .github/actions/ci-install/action.yml.
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        uses: ./.github/actions/ci-install
 
       - name: Build all packages
         run: pnpm run build:packages
