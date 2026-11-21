@@ -45,6 +45,9 @@ importers:
       '@memberjunction/actions-base':
         specifier: 6.3.0-edge.1
         version: 6.3.0-edge.1
+      '@memberjunction/ai-core-plus':
+        specifier: 6.3.0-edge.1
+        version: 6.3.0-edge.1
       '@memberjunction/core':
         specifier: 6.3.0-edge.1
         version: 6.3.0-edge.1
