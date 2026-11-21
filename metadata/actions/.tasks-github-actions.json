@@ -28,6 +28,10 @@
           },
           "primaryKey": {
             "ID": "60B84688-4C3D-4F2A-9514-3E9C86011F45"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.348Z",
+            "checksum": "b7b4a9ead5e06d56bb452f992b9c3a4d0a6f68308f6e6e75ecfd20b293b02022"
           }
         },
         {
@@ -42,6 +46,10 @@
           },
           "primaryKey": {
             "ID": "25020841-BE3C-425E-B46E-810E59D1F1C1"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.372Z",
+            "checksum": "764c63c920aee7928c6b58d1ded8f3b57e271d1b018597e17624c151e8b73aee"
           }
         },
         {
@@ -56,6 +64,10 @@
           },
           "primaryKey": {
             "ID": "9C920B25-30E2-4486-AACA-57C9EFB0D743"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.397Z",
+            "checksum": "fdfaa1b1d6c19580a84ee8ccc40dac54cef95af4ad3a35445344ddc1c0f894e1"
           }
         },
         {
@@ -70,6 +82,10 @@
           },
           "primaryKey": {
             "ID": "069C5760-02EC-43B2-9D61-B3B3C2C1A54E"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.421Z",
+            "checksum": "609373472cbcc3a8d4698b39041a840acbd8827b54d73b13d66c7ca90144f6a2"
           }
         },
         {
@@ -84,6 +100,10 @@
           },
           "primaryKey": {
             "ID": "F95FD0FB-B326-4C6E-87C6-D85A9AAF3523"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.445Z",
+            "checksum": "9e63d11a70313d0764b3c7f55d1b09790e1a39aec3b61976dfa24e6c38dfb400"
           }
         },
         {
@@ -98,6 +118,10 @@
           },
           "primaryKey": {
             "ID": "061B3489-7C34-4A27-AF45-FD41836D0DA9"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.467Z",
+            "checksum": "c25da92149d8eca42ea177a878fd1b4237ec3e516ce9e003d9b7c6649d5c5c2e"
           }
         }
       ],
@@ -111,6 +135,10 @@
           },
           "primaryKey": {
             "ID": "7821AA2C-D94E-4A6C-8C46-72EC0683BE4F"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.490Z",
+            "checksum": "d121c41f26c124761540cfcc441a6971841e84148f130a6bf364d1dfab46430b"
           }
         },
         {
@@ -122,6 +150,10 @@
           },
           "primaryKey": {
             "ID": "9DA9DED1-5885-4C5D-B998-2A88D6569D6B"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.504Z",
+            "checksum": "2961e3b6bc935e12dc5d82afa2c2a6a46bab73660a086d2936ad1d744ce6a5ea"
           }
         },
         {
@@ -133,6 +165,10 @@
           },
           "primaryKey": {
             "ID": "5AA479A7-8232-4F3D-A2DF-3F4FDB810C80"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.519Z",
+            "checksum": "e78379049a3f8ae83f1f8d20e54b7e87d48f2f9d476ed7954af4307a448fc742"
           }
         },
         {
@@ -144,9 +180,17 @@
           },
           "primaryKey": {
             "ID": "84D9A363-BF42-461F-A004-D67C2F0A61DB"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.534Z",
+            "checksum": "7de08317256d483301fbcd7a43e0f553324a1ecc37240a15916c1c05927a5652"
           }
         }
       ]
+    },
+    "sync": {
+      "lastModified": "2026-11-21T16:04:01.174Z",
+      "checksum": "8b7f22513324aa69a56decbfd4ab7a2e7a10fe74117797c3ac7ff2c62ee18c79"
     }
   },
   {
@@ -178,6 +222,10 @@
           },
           "primaryKey": {
             "ID": "9A816833-0053-4ECE-8699-60D132EF31DE"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.556Z",
+            "checksum": "22f6a312d52683be64f7d503b586a3b8b223e70f8fd08426c5952ad4d793d310"
           }
         },
         {
@@ -192,6 +240,10 @@
           },
           "primaryKey": {
             "ID": "31FC870B-ED02-41CA-B720-D27DEEE57E42"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.580Z",
+            "checksum": "92e266ac1f0910ddb98f0dff872c7722fe0c84516dd037c71d96e44fb4684446"
           }
         },
         {
@@ -206,6 +258,10 @@
           },
           "primaryKey": {
             "ID": "E049007A-BA3C-4083-A22A-F312C892820F"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.601Z",
+            "checksum": "9be37bc233d8970967c4a285a284748109d6e2d014ec6555baeac70fd2c19d19"
           }
         },
         {
@@ -220,6 +276,10 @@
           },
           "primaryKey": {
             "ID": "D840B122-74E5-4284-AA6B-0389401C7399"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.624Z",
+            "checksum": "c07da046eabfa5edac84628d799d8596f701484ee0ae3a8cbd4759c0ff3aeb35"
           }
         },
         {
@@ -234,6 +294,10 @@
           },
           "primaryKey": {
             "ID": "022690AF-F0DC-49B1-80FF-B873D2EB2425"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.649Z",
+            "checksum": "6a818143fea0ca4194ac1d516a3172703fb194e9c971dd95e28a22b89518d991"
           }
         }
       ],
@@ -247,6 +311,10 @@
           },
           "primaryKey": {
             "ID": "0B502812-B227-44AD-B22D-B4C542D5F307"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.665Z",
+            "checksum": "fc725b4c3cc81e73b8df8798bd15d1b8ffb44b9274303b2c628253f11f793db6"
           }
         },
         {
@@ -258,6 +326,10 @@
           },
           "primaryKey": {
             "ID": "FE97F79A-D103-485D-99DC-AECF52E433A9"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.680Z",
+            "checksum": "2a990a6c7e6b29b31e064c1c07b44868e66df78d8a0a6d84819b1be358058c20"
           }
         },
         {
@@ -269,6 +341,10 @@
           },
           "primaryKey": {
             "ID": "043078D7-E57D-46EE-BDB9-3E1D7900706A"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.696Z",
+            "checksum": "2f752e5fdfd1171839ec292d41fa7d9976bfe05f58e27e75a99465b2ea677849"
           }
         },
         {
@@ -280,6 +356,10 @@
           },
           "primaryKey": {
             "ID": "662DE732-A8C9-4B7E-831D-70506261BFFB"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.712Z",
+            "checksum": "85b31bd352448d00c8a23d5f84abaa221c0a0d7dcc3df949381ee58ba43c4cdb"
           }
         },
         {
@@ -291,9 +371,17 @@
           },
           "primaryKey": {
             "ID": "4A0BB39B-8983-4EDE-AAAF-8C8548C8B36E"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.730Z",
+            "checksum": "0d843b857e2338ca5522a9318234142187b31fc238bb59b2dba640ac6db06c8c"
           }
         }
       ]
+    },
+    "sync": {
+      "lastModified": "2026-11-21T16:04:01.206Z",
+      "checksum": "d66f8b04f78ca4a3d8b48ba9a3919c51df8161e1c341d1fbc80a94e5e2e2e20f"
     }
   },
   {
@@ -325,6 +413,10 @@
           },
           "primaryKey": {
             "ID": "04724F37-70A7-4D2E-B885-F46A5497DAA4"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.755Z",
+            "checksum": "b17426572fa2f25c89e54bc8189733ea36563be0e487fb427d0863765fcd7629"
           }
         },
         {
@@ -339,6 +431,10 @@
           },
           "primaryKey": {
             "ID": "191D9256-121E-4C81-A0D9-496B4F300115"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.780Z",
+            "checksum": "ff00cd3fa1b49b8d5a64ad64966ffc1dd3c4787475d364bd28a2aff3e40fcdcd"
           }
         }
       ],
@@ -352,6 +448,10 @@
           },
           "primaryKey": {
             "ID": "FD45708A-7AB3-4B8C-AE19-80A3BEB4D330"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.800Z",
+            "checksum": "378964e6718717d9a2773e2362267cba50f0ab9106bce318989d1c5e87f7488e"
           }
         },
         {
@@ -363,6 +463,10 @@
           },
           "primaryKey": {
             "ID": "8234777C-6E03-40BD-B281-557B3913D9E2"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.825Z",
+            "checksum": "c76f48e2e17101c755258052e972810d79c5026cb3c90868ffe7a85b71179a4a"
           }
         },
         {
@@ -374,6 +478,10 @@
           },
           "primaryKey": {
             "ID": "B893B173-9E28-42D9-869C-F939F98DCC7B"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.839Z",
+            "checksum": "14a6af154a50de7d480bf36096fc1885fa4f13416fb45c7e18a0b6b39e2cb4a8"
           }
         },
         {
@@ -385,9 +493,644 @@
           },
           "primaryKey": {
             "ID": "CF051A97-A0CC-4FE5-B7E7-BB0F51C8D0A7"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.855Z",
+            "checksum": "55d54d7ddf2401c408f09f2ac816bf5d6c7edeb03fc258266df3961a53ceef03"
           }
         }
       ]
+    },
+    "sync": {
+      "lastModified": "2026-11-21T16:04:01.235Z",
+      "checksum": "0386fb2818e3c871a03c27bef121db789235b9a557b8cc65215ccedbc12549af"
+    }
+  },
+  {
+    "fields": {
+      "Name": "Get My GitHub PRs",
+      "CategoryID": "@lookup:MJ: Action Categories.Name=Tasks GitHub",
+      "Description": "Strongly-typed, policy-guarded Chief of Staff action that lists GitHub Pull Request tasks authored by or assigned to the calling user, with optional State, RepositoryName, IncludeDrafts, and Limit filters.",
+      "Type": "Custom",
+      "DriverClass": "GetMyGitHubPRsAction",
+      "IconClass": "fa-solid fa-code-pull-request",
+      "UserPrompt": "List my GitHub pull requests with review decision, CI status, and age.",
+      "CodeApprovalStatus": "Approved",
+      "Status": "Active"
+    },
+    "primaryKey": {
+      "ID": "499D31D7-73D4-4D8C-B06B-FEFB78222FBE"
+    },
+    "relatedEntities": {
+      "MJ: Action Params": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "State",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Filter by pull request state: 'Open' (default), 'Draft', 'Merged', 'Closed', or 'All'."
+          },
+          "primaryKey": {
+            "ID": "AE61F352-5790-4B8C-B83D-FE3F6107ED10"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.882Z",
+            "checksum": "8ac26a919e7a078f34964c275f6fd181863877786fe22ec29fde1b038644df38"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "RepositoryName",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Optional repository slug (e.g. 'MJ') or full name ('MemberJunction/MJ') filter."
+          },
+          "primaryKey": {
+            "ID": "790877A1-4477-4685-BE10-8816672B9F8D"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.906Z",
+            "checksum": "fd90121560b8e4cb52d3d37c5ff2119d12784497c3cd453b8502d50353f6feeb"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "IncludeDrafts",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Whether to include draft pull requests when State is 'Open' or 'All' (default true)."
+          },
+          "primaryKey": {
+            "ID": "EABE379E-3D07-4D07-B8AE-308101CEA381"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.928Z",
+            "checksum": "f499152a3e636812cdf6576d737ef1e8dd19f80eced6566ea08be76d5e06531c"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "Limit",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Maximum number of pull requests to return (1-100, default 25)."
+          },
+          "primaryKey": {
+            "ID": "564C3139-D1E9-4D53-A0ED-77DD4A35E807"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.954Z",
+            "checksum": "ee138b230963489d0d7f660c292248a2e7d2abe17d2bb9b6202fde69252cb189"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "PullRequestsJSON",
+            "Type": "Output",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Structured JSON payload containing TotalCount, ReturnedCount, and PullRequests rows (TaskID, PRNumber, Title, Repository, State, IsDraft, ReviewDecision, CIStatus, URL, UpdatedAt, AgeHours)."
+          },
+          "primaryKey": {
+            "ID": "1092F8D5-C54C-4FFF-A402-4F8AE0174A34"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.975Z",
+            "checksum": "948cf934063a78789b3b4d26a4c77eb9200971252f39eedd0bf5def6c951b501"
+          }
+        }
+      ],
+      "MJ: Action Result Codes": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "SUCCESS",
+            "IsSuccess": true,
+            "Description": "Caller's GitHub pull requests retrieved successfully."
+          },
+          "primaryKey": {
+            "ID": "C1C402EE-AC52-485D-8A2D-A5C9D5D43371"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:01.988Z",
+            "checksum": "b453b1a32f97d4617359920e5303669c27699d893a48ad98a666df6ef5ed3d7d"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "FAILED",
+            "IsSuccess": false,
+            "Description": "Unexpected error querying GitHub pull request tasks."
+          },
+          "primaryKey": {
+            "ID": "A67447EA-F3DB-4CF7-A833-1907E0A88F20"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.006Z",
+            "checksum": "7bc9de88fcc5d78b60e6f4c1545d638b4623f28f0d045f7669c7e7e83569d99e"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "INVALID_PARAMS",
+            "IsSuccess": false,
+            "Description": "Invalid State, IncludeDrafts, or Limit parameter value."
+          },
+          "primaryKey": {
+            "ID": "38D1D315-2DA8-4232-A9F9-238CD1E6F0FE"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.021Z",
+            "checksum": "d873c8e296f3792af42945627e72c6a7cb2450dcf7fa04d85974478d7277469a"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "NOT_FOUND",
+            "IsSuccess": false,
+            "Description": "Requested resource or repository was not found."
+          },
+          "primaryKey": {
+            "ID": "EA24C346-108F-419C-874B-3E0252348BCF"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.037Z",
+            "checksum": "9c7fbf3cc37830f02de05f46a198cab0e8ffc5684dbe2fd15a3069989804f18f"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "NO_PERSON_RECORD",
+            "IsSuccess": false,
+            "Description": "Calling user is not linked to an active BizApps Common Person record."
+          },
+          "primaryKey": {
+            "ID": "9D05E53E-5499-4D2C-86C4-358ECF644471"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.052Z",
+            "checksum": "e28c7d4dcbf693cad342135734163e69d6fc2675c2cdcdaa0384b5abeaf23361"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "POLICY_DENIED",
+            "IsSuccess": false,
+            "Description": "Blocked by the user's AI Agent User Policy."
+          },
+          "primaryKey": {
+            "ID": "F595911A-8451-4924-B8A7-F1741392C2FA"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.069Z",
+            "checksum": "269c373e0ef447f9f625e6b3609417228ca75234c101f69fb9adc353fdd2c6ea"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "POLICY_DEFERRED",
+            "IsSuccess": false,
+            "Description": "Deferred outside the user's active policy time window."
+          },
+          "primaryKey": {
+            "ID": "DD6AB098-BA73-48B2-AEB0-E3DF3D94E275"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.086Z",
+            "checksum": "369118ac7a5df5d16808f4ea448de82afe58972009866f6654c6adc06afba259"
+          }
+        }
+      ]
+    },
+    "sync": {
+      "lastModified": "2026-11-21T16:04:01.265Z",
+      "checksum": "23e1eb36afcd23965f1f566ee3247f773e9009a6f543babf6d06975050ead928"
+    }
+  },
+  {
+    "fields": {
+      "Name": "Get GitHub Reviews Waiting On Me",
+      "CategoryID": "@lookup:MJ: Action Categories.Name=Tasks GitHub",
+      "Description": "Strongly-typed, policy-guarded Chief of Staff action that lists open GitHub Pull Request tasks awaiting the calling user's review, sorted oldest/most-stale first and flagging requests older than 24 hours.",
+      "Type": "Custom",
+      "DriverClass": "GetGitHubReviewsWaitingOnMeAction",
+      "IconClass": "fa-solid fa-code-compare",
+      "UserPrompt": "Show GitHub pull requests waiting on my review, oldest first.",
+      "CodeApprovalStatus": "Approved",
+      "Status": "Active"
+    },
+    "primaryKey": {
+      "ID": "3F4C4D57-5DFE-49F0-B182-A5809F6C80E1"
+    },
+    "relatedEntities": {
+      "MJ: Action Params": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "RepositoryName",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Optional repository slug (e.g. 'MJ') or full name ('MemberJunction/MJ') filter."
+          },
+          "primaryKey": {
+            "ID": "59086C64-5DD7-4149-8D39-20249D8BF392"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.107Z",
+            "checksum": "fd90121560b8e4cb52d3d37c5ff2119d12784497c3cd453b8502d50353f6feeb"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "MinAgeHours",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Optional minimum waiting age in hours (default 0; use 24 to return only stale review requests)."
+          },
+          "primaryKey": {
+            "ID": "7AA41E81-DD4D-47A1-B525-488B55D1531A"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.131Z",
+            "checksum": "6be8f1ea35357ccabc27093bf7bf7673958332700e87ad86b5dbf4bc0f74815e"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "Limit",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Maximum number of review items to return (1-100, default 25)."
+          },
+          "primaryKey": {
+            "ID": "C8D59096-7514-48FD-A79E-73E82E2B2BCA"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.153Z",
+            "checksum": "5f28a85630fe5f57f8f8c095c09193cb6efe389638f8a74ffb354125eddbaaf0"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "ReviewsJSON",
+            "Type": "Output",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Structured JSON payload containing TotalWaiting, StaleCount (>24h), and Reviews rows (TaskID, PRNumber, Title, Author, Repository, URL, WaitingHours, IsStale)."
+          },
+          "primaryKey": {
+            "ID": "7EAAED4F-6B74-4FBB-A4B1-B6B50AF43B63"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.179Z",
+            "checksum": "c1f7c31915ecced936db0807cb608e9a8e443cdf9ed5844ba4ebf700e34196ea"
+          }
+        }
+      ],
+      "MJ: Action Result Codes": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "SUCCESS",
+            "IsSuccess": true,
+            "Description": "Pending GitHub review queue retrieved successfully."
+          },
+          "primaryKey": {
+            "ID": "04A4980F-2653-4150-8BB0-BE8A5AA7CCA8"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.195Z",
+            "checksum": "646f0b7dbd26f6b471d7e97f551f7d4b87d75b363da8f71a7ed8a1b4f62eaebe"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "FAILED",
+            "IsSuccess": false,
+            "Description": "Unexpected error querying pending GitHub reviews."
+          },
+          "primaryKey": {
+            "ID": "35856DEB-B408-4A63-ADF8-D709A5198A93"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.211Z",
+            "checksum": "e879fb7954e98e998837a5607642ebef731161cbc3212538052384cf12b3c405"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "INVALID_PARAMS",
+            "IsSuccess": false,
+            "Description": "Invalid MinAgeHours or Limit parameter value."
+          },
+          "primaryKey": {
+            "ID": "D959FBD1-7966-495E-8550-C422E91B3228"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.227Z",
+            "checksum": "25162547dc0962dcfe6d6af7ef84d6a0dcd2b758a359c8c8c734b3a4b2656707"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "NOT_FOUND",
+            "IsSuccess": false,
+            "Description": "Requested resource or repository was not found."
+          },
+          "primaryKey": {
+            "ID": "C4A1894A-AAD9-4799-9AF7-A29AE02CFB7B"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.242Z",
+            "checksum": "9c7fbf3cc37830f02de05f46a198cab0e8ffc5684dbe2fd15a3069989804f18f"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "NO_PERSON_RECORD",
+            "IsSuccess": false,
+            "Description": "Calling user is not linked to an active BizApps Common Person record."
+          },
+          "primaryKey": {
+            "ID": "E2D07C45-25CC-4AED-9CCB-0A4D885E6FF7"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.260Z",
+            "checksum": "e28c7d4dcbf693cad342135734163e69d6fc2675c2cdcdaa0384b5abeaf23361"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "POLICY_DENIED",
+            "IsSuccess": false,
+            "Description": "Blocked by the user's AI Agent User Policy."
+          },
+          "primaryKey": {
+            "ID": "94F0FB0B-A506-4B5D-B398-F4C20CC306F1"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.274Z",
+            "checksum": "269c373e0ef447f9f625e6b3609417228ca75234c101f69fb9adc353fdd2c6ea"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "POLICY_DEFERRED",
+            "IsSuccess": false,
+            "Description": "Deferred outside the user's active policy time window."
+          },
+          "primaryKey": {
+            "ID": "61D0303A-B487-48A9-BF34-58B881ED87A8"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.289Z",
+            "checksum": "369118ac7a5df5d16808f4ea448de82afe58972009866f6654c6adc06afba259"
+          }
+        }
+      ]
+    },
+    "sync": {
+      "lastModified": "2026-11-21T16:04:01.291Z",
+      "checksum": "6c1f5b152343a5782cdab75c09d5619a37030b3b0aa883750c8f8bb84b6a47b8"
+    }
+  },
+  {
+    "fields": {
+      "Name": "Get My GitHub Briefing",
+      "CategoryID": "@lookup:MJ: Action Categories.Name=Tasks GitHub",
+      "Description": "Deterministic Chief of Staff briefing contributor (Role=Briefing, ExposeToModel=false) invoked by Assemble My Briefing to summarize the calling user's open PRs, pending PR reviews (highlighting >24h stale), blocked or failing GitHub-linked tasks, and upcoming deadlines.",
+      "Type": "Custom",
+      "DriverClass": "GetMyGitHubBriefingAction",
+      "IconClass": "fa-brands fa-github",
+      "UserPrompt": "Assemble a compact GitHub briefing covering my open PRs, waiting reviews, and blocked or failing GitHub tasks.",
+      "CodeApprovalStatus": "Approved",
+      "Status": "Active"
+    },
+    "primaryKey": {
+      "ID": "395B516E-BFCF-4E36-8980-E7ABDCB7E365"
+    },
+    "relatedEntities": {
+      "MJ: Action Params": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "HorizonDays",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Lookahead and recent-activity horizon in days (1-90, default 7)."
+          },
+          "primaryKey": {
+            "ID": "E2207AD7-75C7-400A-B871-249477EC9C56"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.314Z",
+            "checksum": "c0c874f0da2094e9f42f8ed6c8e5d3bce3404ab6a042187495845c648f4ea28d"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "Limit",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Maximum number of highlight rows per briefing section (1-50, default 10)."
+          },
+          "primaryKey": {
+            "ID": "EBAB5245-D744-4AF4-91D5-244141346502"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.337Z",
+            "checksum": "d0c1bf923bdac0f07f503b8dfb97a31e97ffcb84f053d6accbb47ae738d942eb"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "AgentID",
+            "Type": "Input",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Optional calling AI Agent ID passed by Assemble My Briefing."
+          },
+          "primaryKey": {
+            "ID": "F9397373-D7D3-4B7D-BCB7-6B63F10CFB31"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.361Z",
+            "checksum": "59385ce7fc89239ae1ac4db8ec1b346ce0b68991d5a52796199d1da48443b29f"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "Name": "BriefingJSON",
+            "Type": "Output",
+            "ValueType": "Scalar",
+            "IsArray": false,
+            "IsRequired": false,
+            "Description": "Compact structured JSON executive summary containing Counts, OpenPRs, ReviewsWaitingOnMe, BlockedOrFailingTasks, and UpcomingDeadlines."
+          },
+          "primaryKey": {
+            "ID": "BF3CB7D3-8CD9-445D-B7D3-D51DF1CB2036"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.382Z",
+            "checksum": "8c951ad138264b8dac678a83c743ad2eea1ea5c4738a18220fb0f17caae68350"
+          }
+        }
+      ],
+      "MJ: Action Result Codes": [
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "SUCCESS",
+            "IsSuccess": true,
+            "Description": "GitHub briefing assembled successfully."
+          },
+          "primaryKey": {
+            "ID": "4A781FD5-E05A-41AB-BC15-4BBD0E402AD8"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.398Z",
+            "checksum": "b8a15aa2e7804679c14e69c2b73919681272112d0193640c7c3e1f99d4cbcbac"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "FAILED",
+            "IsSuccess": false,
+            "Description": "Unexpected error assembling GitHub briefing."
+          },
+          "primaryKey": {
+            "ID": "DDF18924-15C6-4177-85B7-FB02DFB270C9"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.414Z",
+            "checksum": "278c5fdc34567015802cd6463a4c8a5a499ecb9d38317014fc0b8480ea246490"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "INVALID_PARAMS",
+            "IsSuccess": false,
+            "Description": "Invalid HorizonDays or Limit parameter value."
+          },
+          "primaryKey": {
+            "ID": "5AF3F645-C2FD-46D4-A20E-DD14AA163C1F"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.430Z",
+            "checksum": "b0e59069a05b7abe0f7db0116d85de36449dcc38b106b1b932fbf11421b7b69d"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "NOT_FOUND",
+            "IsSuccess": false,
+            "Description": "Requested resource was not found."
+          },
+          "primaryKey": {
+            "ID": "CBB31165-50E9-488E-B475-2B0027D402F6"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.445Z",
+            "checksum": "f805ae61cbd6ff25e2f9d554d04fba891e3475f23cb290836ce89f78a5dd107c"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "NO_PERSON_RECORD",
+            "IsSuccess": false,
+            "Description": "Calling user is not linked to an active BizApps Common Person record."
+          },
+          "primaryKey": {
+            "ID": "1936E09C-B443-4D32-B7F4-E29D2A3FB64A"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.460Z",
+            "checksum": "e28c7d4dcbf693cad342135734163e69d6fc2675c2cdcdaa0384b5abeaf23361"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "POLICY_DENIED",
+            "IsSuccess": false,
+            "Description": "Blocked by the user's AI Agent User Policy."
+          },
+          "primaryKey": {
+            "ID": "EB7641AA-1F33-424C-B7BB-9F3027B7F722"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.476Z",
+            "checksum": "269c373e0ef447f9f625e6b3609417228ca75234c101f69fb9adc353fdd2c6ea"
+          }
+        },
+        {
+          "fields": {
+            "ActionID": "@parent:ID",
+            "ResultCode": "POLICY_DEFERRED",
+            "IsSuccess": false,
+            "Description": "Deferred outside the user's active policy time window."
+          },
+          "primaryKey": {
+            "ID": "4923C505-EA12-4AAA-9C09-6DB6844FFCE2"
+          },
+          "sync": {
+            "lastModified": "2026-11-21T16:04:02.492Z",
+            "checksum": "369118ac7a5df5d16808f4ea448de82afe58972009866f6654c6adc06afba259"
+          }
+        }
+      ]
+    },
+    "sync": {
+      "lastModified": "2026-11-21T16:04:01.318Z",
+      "checksum": "9851696cfd22d0eb9cefdcfd4aadd6ad280c306e352b39c409558d64d8db6ec8"
     }
   }
 ]

@@ -6,6 +6,37 @@
 DELETE FROM ${mjSchema}."ApplicationSetting"
  WHERE "Name" LIKE 'NavItem.bizapps-tasks-github.%';
 
+-- 0b. Disable materialized Chief of Staff AgentWake routines, remove offered GitHub rhythm templates and proactive suggestions
+DO $$
+BEGIN
+    IF to_regclass('${mjSchema}."UserRoutine"') IS NOT NULL THEN
+        EXECUTE '
+            UPDATE ${mjSchema}."UserRoutine"
+               SET "Status" = ''Disabled''
+             WHERE "RoutineType" = ''AgentWake''
+               AND "Status" <> ''Disabled''
+               AND "WakeConfiguration" LIKE ''%"github-review-queue"%'';
+        ';
+    END IF;
+    IF to_regclass('${mjSchema}."AIAgentRhythmTemplate"') IS NOT NULL THEN
+        EXECUTE '
+            DELETE FROM ${mjSchema}."AIAgentRhythmTemplate"
+             WHERE "ID" = ''87F3CA32-1D21-4B13-95BB-EC56F3DB48F3''
+                OR "WorkstreamKey" = ''github-review-queue''
+                OR "SkillID" IN (SELECT "ID" FROM ${mjSchema}."AISkill" WHERE "Name" = ''GitHub Tasks & Pull Requests'');
+        ';
+    END IF;
+    IF to_regclass('${mjSchema}."AIAgentSuggestion"') IS NOT NULL THEN
+        EXECUTE '
+            DELETE FROM ${mjSchema}."AIAgentSuggestion"
+             WHERE "TargetKey" IN (
+                 ''github-review-queue'',
+                 ''GitHub Tasks & Pull Requests''
+             );
+        ';
+    END IF;
+END $$;
+
 -- 1. Retire "GitHub Tasks & Pull Requests" skill and grants
 UPDATE ${mjSchema}."SearchExecutionLog"
    SET "AISkillID" = NULL
@@ -188,7 +219,10 @@ SELECT "ID"
  WHERE "Name" IN (
      'Sync GitHub Repository Tasks',
      'Handle GitHub Tasks Webhook',
-     'Infer GitHub Task Planning Fields'
+     'Infer GitHub Task Planning Fields',
+     'Get My GitHub PRs',
+     'Get GitHub Reviews Waiting On Me',
+     'Get My GitHub Briefing'
  );
 
 CREATE TEMP TABLE IF NOT EXISTS _github_action_execution_log_ids AS
