@@ -12,6 +12,7 @@ import {
 } from '@memberjunction/server';
 import { UserCache } from '@memberjunction/sqlserver-dataprovider';
 import {
+    GitHubTasksLimitsResolver,
     GitHubWebhookService,
     HasConfiguredGitHubWebhookSecret,
     ResolveGitHubWebhookSecret,
@@ -19,8 +20,6 @@ import {
 
 export const DEFAULT_GITHUB_WEBHOOK_SUBPATH = '/webhooks/github/tasks';
 export const GITHUB_TASKS_WEBHOOK_DRIVER_CLASS = 'GitHubTasksWebhookServerExtension';
-
-const MAX_WEBHOOK_BODY_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export interface GitHubWebhookHttpRequest {
     headers: Record<string, string | string[] | undefined>;
@@ -48,6 +47,7 @@ export interface CreateGitHubTasksWebhookHandlerOptions {
     configuredUserEmail?: string;
     webhookSecret?: string;
     credentialId?: string;
+    maxBodyBytes?: number;
     queueInference?: boolean;
     provider?: IMetadataProvider & IRunViewProvider;
 }
@@ -86,7 +86,7 @@ export function captureRawBodyVerify(
     }
 }
 
-async function readStreamRawBody(req: GitHubWebhookHttpRequest): Promise<string> {
+async function readStreamRawBody(req: GitHubWebhookHttpRequest, maxBodyBytes: number): Promise<string> {
     if (typeof req.on !== 'function' || req.readable === false || req.readableEnded === true) {
         return '';
     }
@@ -97,8 +97,8 @@ async function readStreamRawBody(req: GitHubWebhookHttpRequest): Promise<string>
             if (!chunk || chunk instanceof Error) return;
             const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
             totalBytes += buf.length;
-            if (totalBytes > MAX_WEBHOOK_BODY_BYTES) {
-                reject(new Error('Webhook payload exceeds maximum allowed size'));
+            if (totalBytes > maxBodyBytes) {
+                reject(new Error(`Webhook payload exceeds maximum allowed size of ${maxBodyBytes} bytes`));
                 return;
             }
             chunks.push(buf);
@@ -144,6 +144,11 @@ export function createGitHubTasksWebhookHandler(
     options: CreateGitHubTasksWebhookHandlerOptions = {},
 ): (req: GitHubWebhookHttpRequest, res: GitHubWebhookHttpResponse) => Promise<void> {
     return async (req: GitHubWebhookHttpRequest, res: GitHubWebhookHttpResponse): Promise<void> => {
+        const maxBodyBytes = GitHubTasksLimitsResolver.GetLimits(
+            options.maxBodyBytes !== undefined
+                ? { override: { Webhook: { MaxBodyBytes: options.maxBodyBytes } } }
+                : undefined,
+        ).Webhook.MaxBodyBytes;
         const eventName = readHeader(req.headers, 'x-github-event');
         const signatureHeader = readHeader(req.headers, 'x-hub-signature-256');
         const deliveryId = readHeader(req.headers, 'x-github-delivery');
@@ -151,16 +156,32 @@ export function createGitHubTasksWebhookHandler(
 
         let rawPayload = '';
         if (Buffer.isBuffer(req.rawBody)) {
+            if (req.rawBody.byteLength > maxBodyBytes) {
+                res.status(413).json({ ok: false, error: 'Webhook payload too large or unreadable' });
+                return;
+            }
             rawPayload = req.rawBody.toString('utf8');
         } else if (typeof req.rawBody === 'string') {
+            if (Buffer.byteLength(req.rawBody, 'utf8') > maxBodyBytes) {
+                res.status(413).json({ ok: false, error: 'Webhook payload too large or unreadable' });
+                return;
+            }
             rawPayload = req.rawBody;
         } else if (Buffer.isBuffer(req.body)) {
+            if (req.body.byteLength > maxBodyBytes) {
+                res.status(413).json({ ok: false, error: 'Webhook payload too large or unreadable' });
+                return;
+            }
             rawPayload = req.body.toString('utf8');
         } else if (typeof req.body === 'string') {
+            if (Buffer.byteLength(req.body, 'utf8') > maxBodyBytes) {
+                res.status(413).json({ ok: false, error: 'Webhook payload too large or unreadable' });
+                return;
+            }
             rawPayload = req.body;
         } else {
             try {
-                rawPayload = await readStreamRawBody(req);
+                rawPayload = await readStreamRawBody(req, maxBodyBytes);
             } catch (streamErr) {
                 LogError(streamErr instanceof Error ? streamErr : new Error(String(streamErr)));
                 res.status(413).json({ ok: false, error: 'Webhook payload too large or unreadable' });

@@ -1,5 +1,7 @@
 import { LogError, type IMetadataProvider, type IRunViewProvider, type UserInfo } from '@memberjunction/core';
 import {
+    DEFAULT_GITHUB_TASKS_LIMITS,
+    GitHubTasksLimitsResolver,
     GitHubWebhookService,
     HasConfiguredGitHubWebhookSecret,
     ResolveGitHubWebhookSecret,
@@ -7,7 +9,7 @@ import {
 import { resolveDefaultWebhookContextUser } from './webhookMiddleware.js';
 
 export const DEFAULT_PILOT_GITHUB_WEBHOOK_PATH = '/webhooks/github';
-export const DEFAULT_PILOT_MAX_WEBHOOK_BODY_BYTES = 10 * 1024 * 1024; // 10 MiB
+export const DEFAULT_PILOT_MAX_WEBHOOK_BODY_BYTES = DEFAULT_GITHUB_TASKS_LIMITS.Webhook.MaxBodyBytes;
 
 export interface GitHubWebhookHealthPayload {
     status: 'ok';
@@ -259,8 +261,10 @@ export function MountGitHubWebhookEndpoint(
     const healthEndpoint = endpoint === '/' ? '/health' : `${endpoint}/health`;
     const maxBodyBytes =
         typeof options.maxBodyBytes === 'number' && Number.isFinite(options.maxBodyBytes) && options.maxBodyBytes > 0
-            ? Math.floor(options.maxBodyBytes)
-            : DEFAULT_PILOT_MAX_WEBHOOK_BODY_BYTES;
+            ? GitHubTasksLimitsResolver.GetLimits({
+                  override: { Webhook: { MaxBodyBytes: Math.floor(options.maxBodyBytes) } },
+              }).Webhook.MaxBodyBytes
+            : GitHubTasksLimitsResolver.GetLimits().Webhook.MaxBodyBytes;
     const autoProcessDelivery = options.autoProcessDelivery !== false;
 
     const healthHandler: GitHubWebhookRouteHandler = async (_req, res) => {
