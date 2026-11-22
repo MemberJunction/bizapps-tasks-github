@@ -38,10 +38,11 @@ export const TASKS_GITHUB_ADMIN_ACTIVE_TAB_SETTING_KEY = 'TasksGitHub.Admin.Acti
 
 /**
  * Canonical GitHub handle format:
- * - 1 to 39 characters
+ * - 1 to 39 characters (ProtocolLimit: GitHub account username maximum length specification is 39 chars, encoded via `{0,38}` quantifier after the leading character)
  * - Alphanumeric ASCII characters or single internal hyphens (`-`)
  * - Cannot begin or end with a hyphen or contain consecutive hyphens
  */
+// ProtocolLimit: GitHub account username length specification (1-39 chars via 0..38 quantifier).
 export const GITHUB_USERNAME_REGEX = /^[a-zA-Z0-9](?:[a-zA-Z0-9]|-(?=[a-zA-Z0-9])){0,38}$/;
 
 export const PULL_OWNED_FIELD_LOCK_NOTICE =

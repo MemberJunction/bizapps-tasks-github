@@ -9,6 +9,11 @@ import {
 } from '@memberjunction/core';
 import { BaseSingleton, EscapeSQLString, GetGlobalObjectStore } from '@memberjunction/global';
 import type { mjBizAppsTasksGitHubGitHubRepositoryEntity } from '@mj-biz-apps/tasks-github-entities';
+import {
+    GITHUB_REST_MAX_PER_PAGE,
+    GitHubTasksLimitsResolver,
+    type GitHubTasksLimitsOverride,
+} from './GitHubTasksLimits.js';
 import { GITHUB_REPOSITORIES_ENTITY, GitHubTaskSyncService } from './GitHubTaskSyncService.js';
 import { DEFAULT_GITHUB_API_BASE_URL, ResolveGitHubVaultAuth } from './GitHubVaultAuthResolver.js';
 import type {
@@ -29,10 +34,6 @@ export type SupportedGitHubWebhookEvent =
     | 'pull_request_review'
     | 'check_suite'
     | 'check_run';
-
-const MAX_TRACKED_DELIVERY_IDS = 5000;
-const MAX_TRACKED_CHECK_SHAS = 5000;
-const MAX_TRACKED_PR_REVIEWS = 5000;
 
 interface GitHubRestCheckRunItem {
     id?: number;
@@ -71,12 +72,10 @@ interface GitHubRestReviewItem {
  * falls back to its bounded in-memory LRU state maps.
  */
 export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetcher {
-    private static readonly MAX_LIVE_STATE_PAGES = 3;
-    private static readonly REQUEST_TIMEOUT_MS = 4000;
-
     public constructor(
         private readonly _explicitToken?: string,
         private readonly _explicitApiBaseUrl?: string,
+        private readonly _limitsOverride?: GitHubTasksLimitsOverride,
     ) {}
 
     private async resolveAuth(
@@ -136,17 +135,19 @@ export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetche
         if (!auth) {
             return null;
         }
+        const webhookLimits = GitHubTasksLimitsResolver.GetLimits({ override: this._limitsOverride }).Webhook;
         const headers = this.buildHeaders(auth.token);
         const encodedOwner = encodeURIComponent(owner);
         const encodedRepo = encodeURIComponent(repo);
         const encodedSha = encodeURIComponent(headSha);
 
         const latestRunByName = new Map<string, { id: number; status: GitHubPullRequestChecksStatus }>();
-        for (let page = 1; page <= DefaultGitHubRestLiveStateFetcher.MAX_LIVE_STATE_PAGES; page += 1) {
-            const url = `${auth.apiBaseUrl}/repos/${encodedOwner}/${encodedRepo}/commits/${encodedSha}/check-runs?per_page=100&page=${page}`;
+        for (let page = 1; page <= webhookLimits.LiveStateMaxPages; page += 1) {
+            // ProtocolLimit: GitHub REST check-runs endpoint hard maximum page size is 100 items (`per_page=100`).
+            const url = `${auth.apiBaseUrl}/repos/${encodedOwner}/${encodedRepo}/commits/${encodedSha}/check-runs?per_page=${GITHUB_REST_MAX_PER_PAGE}&page=${page}`;
             const response = await fetch(url, {
                 headers,
-                signal: AbortSignal.timeout(DefaultGitHubRestLiveStateFetcher.REQUEST_TIMEOUT_MS),
+                signal: AbortSignal.timeout(webhookLimits.LiveStateRequestTimeoutMs),
             });
             if (!response.ok) {
                 throw new Error(`GitHub REST GET ${url} failed with HTTP ${response.status}`);
@@ -164,7 +165,8 @@ export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetche
                     });
                 }
             }
-            if (runs.length < 100) {
+            // ProtocolLimit: Stop paging when fewer than the 100-item GitHub REST max page size are returned.
+            if (runs.length < GITHUB_REST_MAX_PER_PAGE) {
                 break;
             }
         }
@@ -172,7 +174,7 @@ export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetche
         const statusUrl = `${auth.apiBaseUrl}/repos/${encodedOwner}/${encodedRepo}/commits/${encodedSha}/status`;
         const statusRes = await fetch(statusUrl, {
             headers,
-            signal: AbortSignal.timeout(DefaultGitHubRestLiveStateFetcher.REQUEST_TIMEOUT_MS),
+            signal: AbortSignal.timeout(webhookLimits.LiveStateRequestTimeoutMs),
         });
         if (!statusRes.ok) {
             throw new Error(`GitHub REST GET ${statusUrl} failed with HTTP ${statusRes.status}`);
@@ -216,16 +218,18 @@ export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetche
         if (!auth) {
             return undefined;
         }
+        const webhookLimits = GitHubTasksLimitsResolver.GetLimits({ override: this._limitsOverride }).Webhook;
         const headers = this.buildHeaders(auth.token);
         const encodedOwner = encodeURIComponent(owner);
         const encodedRepo = encodeURIComponent(repo);
 
         const reviewerDecisions = new Map<string, 'APPROVED' | 'CHANGES_REQUESTED'>();
-        for (let page = 1; page <= DefaultGitHubRestLiveStateFetcher.MAX_LIVE_STATE_PAGES; page += 1) {
-            const url = `${auth.apiBaseUrl}/repos/${encodedOwner}/${encodedRepo}/pulls/${pullNumber}/reviews?per_page=100&page=${page}`;
+        for (let page = 1; page <= webhookLimits.LiveStateMaxPages; page += 1) {
+            // ProtocolLimit: GitHub REST pull request reviews endpoint hard maximum page size is 100 items (`per_page=100`).
+            const url = `${auth.apiBaseUrl}/repos/${encodedOwner}/${encodedRepo}/pulls/${pullNumber}/reviews?per_page=${GITHUB_REST_MAX_PER_PAGE}&page=${page}`;
             const response = await fetch(url, {
                 headers,
-                signal: AbortSignal.timeout(DefaultGitHubRestLiveStateFetcher.REQUEST_TIMEOUT_MS),
+                signal: AbortSignal.timeout(webhookLimits.LiveStateRequestTimeoutMs),
             });
             if (!response.ok) {
                 throw new Error(`GitHub REST GET ${url} failed with HTTP ${response.status}`);
@@ -248,7 +252,8 @@ export class DefaultGitHubRestLiveStateFetcher implements IGitHubLiveStateFetche
                     reviewerDecisions.delete(reviewerKey);
                 }
             }
-            if (reviews.length < 100) {
+            // ProtocolLimit: Stop paging when fewer than the 100-item GitHub REST max page size are returned.
+            if (reviews.length < GITHUB_REST_MAX_PER_PAGE) {
                 break;
             }
         }
@@ -752,11 +757,13 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             this._checkStatesBySha.set(shaKey, existing);
             return existing;
         }
-        if (this._checkStatesBySha.size >= MAX_TRACKED_CHECK_SHAS) {
+        const maxTrackedCheckShas = GitHubTasksLimitsResolver.GetLimits().Webhook.MaxTrackedCheckShas;
+        while (this._checkStatesBySha.size >= maxTrackedCheckShas) {
             const oldestKey = this._checkStatesBySha.keys().next().value;
-            if (typeof oldestKey === 'string') {
-                this._checkStatesBySha.delete(oldestKey);
+            if (typeof oldestKey !== 'string') {
+                break;
             }
+            this._checkStatesBySha.delete(oldestKey);
         }
         const created = new Map<string, GitHubPullRequestChecksStatus>();
         this._checkStatesBySha.set(shaKey, created);
@@ -771,11 +778,13 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
             this._reviewStatesByPr.set(prKey, existing);
             return existing;
         }
-        if (this._reviewStatesByPr.size >= MAX_TRACKED_PR_REVIEWS) {
+        const maxTrackedPrReviews = GitHubTasksLimitsResolver.GetLimits().Webhook.MaxTrackedPrReviews;
+        while (this._reviewStatesByPr.size >= maxTrackedPrReviews) {
             const oldestKey = this._reviewStatesByPr.keys().next().value;
-            if (typeof oldestKey === 'string') {
-                this._reviewStatesByPr.delete(oldestKey);
+            if (typeof oldestKey !== 'string') {
+                break;
             }
+            this._reviewStatesByPr.delete(oldestKey);
         }
         const created = new Map<string, 'APPROVED' | 'CHANGES_REQUESTED'>();
         this._reviewStatesByPr.set(prKey, created);
@@ -800,11 +809,13 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
 
     private recordDeliveryId(deliveryId: string): void {
         if (!deliveryId) return;
-        if (this._processedDeliveries.size >= MAX_TRACKED_DELIVERY_IDS) {
+        const maxTrackedDeliveryIds = GitHubTasksLimitsResolver.GetLimits().Webhook.MaxTrackedDeliveryIds;
+        while (this._processedDeliveries.size >= maxTrackedDeliveryIds) {
             const oldest = this._processedDeliveries.values().next().value;
-            if (typeof oldest === 'string') {
-                this._processedDeliveries.delete(oldest);
+            if (typeof oldest !== 'string') {
+                break;
             }
+            this._processedDeliveries.delete(oldest);
         }
         this._processedDeliveries.add(deliveryId);
     }

@@ -29,6 +29,11 @@ import {
 import { RunWithEntityTransaction } from './entity-transaction.js';
 import { GitHubFieldOwnershipPolicy } from './GitHubFieldOwnershipPolicy.js';
 import { GitHubTaskInferenceService, TASKS_ENTITY_NAME } from './GitHubTaskInferenceService.js';
+import {
+    GitHubTasksLimitsResolver,
+    type GitHubRestLimitsConfig,
+    type GitHubTasksLimitsOverride,
+} from './GitHubTasksLimits.js';
 import { ResolveGitHubVaultAuth } from './GitHubVaultAuthResolver.js';
 import { AssertValidUUID } from './sql-safety.js';
 import type {
@@ -171,6 +176,7 @@ export interface DefaultGitHubRestRepositoryFetcherOptions {
     companyId?: string | null;
     useUserDelegatedAuth?: boolean;
     fetchImpl?: typeof fetch;
+    limits?: GitHubTasksLimitsOverride;
 }
 
 function parseNextLinkUrl(linkHeader: string | null): string | null {
@@ -193,11 +199,6 @@ function parseNextLinkUrl(linkHeader: string | null): string | null {
  * RFC 5988 `Link` pagination, transient retry backoff, and `GITHUB_APP_*` / `GITHUB_TOKEN` / `GH_TOKEN` fallback.
  */
 export class DefaultGitHubRestRepositoryFetcher implements IGitHubRepositoryFetcher {
-    private static readonly MAX_PAGES = 20;
-    private static readonly PAGE_SIZE = 100;
-    private static readonly REQUEST_TIMEOUT_MS = 10000;
-    private static readonly MAX_RETRIES = 2;
-
     public constructor(private readonly _options: DefaultGitHubRestRepositoryFetcherOptions = {}) {}
 
     public async FetchRepositoryItems(
@@ -206,6 +207,10 @@ export class DefaultGitHubRestRepositoryFetcher implements IGitHubRepositoryFetc
         contextUser?: UserInfo,
         provider?: IMetadataProvider,
     ): Promise<NormalizedGitHubSyncItem[]> {
+        const restLimits = GitHubTasksLimitsResolver.GetLimits({
+            override: this._options.limits,
+        }).GitHubRest;
+
         const auth = await ResolveGitHubVaultAuth({
             credentialId: this._options.credentialId,
             companyId: this._options.companyId,
@@ -236,8 +241,8 @@ export class DefaultGitHubRestRepositoryFetcher implements IGitHubRepositoryFetc
         };
         const baseUrl = `${auth.apiBaseUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
         const [rawIssues, rawPulls] = await Promise.all([
-            this.fetchPaginated<GitHubRestIssueJson>(`${baseUrl}/issues`, headers, `${owner}/${name} issues`),
-            this.fetchPaginated<GitHubRestPullRequestJson>(`${baseUrl}/pulls`, headers, `${owner}/${name} pull requests`),
+            this.fetchPaginated<GitHubRestIssueJson>(`${baseUrl}/issues`, headers, `${owner}/${name} issues`, restLimits),
+            this.fetchPaginated<GitHubRestPullRequestJson>(`${baseUrl}/pulls`, headers, `${owner}/${name} pull requests`, restLimits),
         ]);
         const normalized: NormalizedGitHubSyncItem[] = [];
 
@@ -325,27 +330,28 @@ export class DefaultGitHubRestRepositoryFetcher implements IGitHubRepositoryFetc
     private async fetchWithRetry(
         url: string,
         headers: Record<string, string>,
+        restLimits: GitHubRestLimitsConfig,
     ): Promise<Response> {
         const fetchFn = this._options.fetchImpl ?? fetch;
         let lastResponse: Response | null = null;
 
-        for (let attempt = 0; attempt <= DefaultGitHubRestRepositoryFetcher.MAX_RETRIES; attempt += 1) {
+        for (let attempt = 0; attempt <= restLimits.SyncMaxRetries; attempt += 1) {
             const res = await fetchFn(url, {
                 headers,
-                signal: AbortSignal.timeout(DefaultGitHubRestRepositoryFetcher.REQUEST_TIMEOUT_MS),
+                signal: AbortSignal.timeout(restLimits.SyncRequestTimeoutMs),
             });
             lastResponse = res;
             if (
                 res.ok ||
                 (res.status !== 429 && res.status !== 502 && res.status !== 503 && res.status !== 504) ||
-                attempt === DefaultGitHubRestRepositoryFetcher.MAX_RETRIES
+                attempt === restLimits.SyncMaxRetries
             ) {
                 return res;
             }
             const retryAfterSec = Number.parseInt(res.headers.get('retry-after') ?? '', 10);
             const delayMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0
-                ? Math.min(retryAfterSec * 1000, 2000)
-                : 150 * (attempt + 1);
+                ? Math.min(retryAfterSec * 1000, restLimits.RetryAfterMaxDelayMs)
+                : restLimits.RetryBaseDelayMs * (attempt + 1);
             await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
         }
 
@@ -356,12 +362,13 @@ export class DefaultGitHubRestRepositoryFetcher implements IGitHubRepositoryFetc
         endpointUrl: string,
         headers: Record<string, string>,
         label: string,
+        restLimits: GitHubRestLimitsConfig,
     ): Promise<T[]> {
         const collected: T[] = [];
-        let nextUrl: string | null = `${endpointUrl}?state=all&per_page=${DefaultGitHubRestRepositoryFetcher.PAGE_SIZE}&page=1`;
+        let nextUrl: string | null = `${endpointUrl}?state=all&per_page=${restLimits.SyncPerPage}&page=1`;
 
-        for (let page = 1; page <= DefaultGitHubRestRepositoryFetcher.MAX_PAGES && nextUrl !== null; page += 1) {
-            const res = await this.fetchWithRetry(nextUrl, headers);
+        for (let page = 1; page <= restLimits.SyncMaxPages && nextUrl !== null; page += 1) {
+            const res = await this.fetchWithRetry(nextUrl, headers, restLimits);
             if (!res.ok) {
                 throw new Error(`GitHub REST API error fetching ${label} (page ${page}): HTTP ${res.status}`);
             }
@@ -378,15 +385,15 @@ export class DefaultGitHubRestRepositoryFetcher implements IGitHubRepositoryFetc
                     break;
                 }
             } else {
-                if (batch.length < DefaultGitHubRestRepositoryFetcher.PAGE_SIZE) {
+                if (batch.length < restLimits.SyncPerPage) {
                     break;
                 }
-                nextUrl = `${endpointUrl}?state=all&per_page=${DefaultGitHubRestRepositoryFetcher.PAGE_SIZE}&page=${page + 1}`;
+                nextUrl = `${endpointUrl}?state=all&per_page=${restLimits.SyncPerPage}&page=${page + 1}`;
             }
 
-            if (page === DefaultGitHubRestRepositoryFetcher.MAX_PAGES) {
+            if (page === restLimits.SyncMaxPages) {
                 LogError(
-                    `[DefaultGitHubRestRepositoryFetcher] Pagination for ${label} reached the ${DefaultGitHubRestRepositoryFetcher.MAX_PAGES}-page cap (${collected.length} items); additional items were truncated.`,
+                    `[DefaultGitHubRestRepositoryFetcher] Pagination for ${label} reached the ${restLimits.SyncMaxPages}-page cap (${collected.length} items); additional items were truncated.`,
                 );
             }
         }

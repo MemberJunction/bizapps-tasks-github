@@ -13,6 +13,7 @@ import { BaseSingleton, EscapeSQLString, GetGlobalObjectStore, IsValidUUID, UUID
 import { mjBizAppsTasksTaskSchema, type mjBizAppsTasksTaskEntity } from '@mj-biz-apps/tasks-entities';
 import { RunWithEntityTransaction } from './entity-transaction.js';
 import { GitHubFieldOwnershipPolicy } from './GitHubFieldOwnershipPolicy.js';
+import { GitHubTasksLimitsResolver, type GitHubTasksLimitsOverride } from './GitHubTasksLimits.js';
 import { AssertValidUUID } from './sql-safety.js';
 import type {
     IFieldSuggestionEntityRecord,
@@ -73,6 +74,7 @@ export interface RunTaskInferenceOptions {
     structuredLogins: string[];
     contextUser: UserInfo;
     provider?: IMetadataProvider & IRunViewProvider;
+    limits?: GitHubTasksLimitsOverride;
 }
 
 export interface RunTaskInferenceResult {
@@ -180,7 +182,12 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
      * Queues a debounced background inference run per Task ID so rapid webhook edits
      * coalesce into a single background LLM run without holding the HTTP response open.
      */
-    public QueueDebouncedInference(options: RunTaskInferenceOptions, debounceMs = 1500): void {
+    public QueueDebouncedInference(options: RunTaskInferenceOptions, debounceMs?: number): void {
+        const inferenceLimits = GitHubTasksLimitsResolver.GetLimits({ override: options.limits }).Inference;
+        const effectiveDebounceMs =
+            typeof debounceMs === 'number' && Number.isFinite(debounceMs) && debounceMs >= 0
+                ? Math.trunc(debounceMs)
+                : inferenceLimits.DebounceMs;
         const key = options.task.ID.toLowerCase();
         const existingTimer = this._debouncedTimers.get(key);
         if (existingTimer) {
@@ -197,7 +204,7 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
                     this._inFlightDebounced.delete(key);
                 });
             this._inFlightDebounced.set(key, runPromise);
-        }, debounceMs);
+        }, effectiveDebounceMs);
         this._debouncedTimers.set(key, timer);
     }
 
@@ -239,6 +246,7 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
             };
         }
 
+        const inferenceLimits = GitHubTasksLimitsResolver.GetLimits({ override: options.limits }).Inference;
         const md = provider ?? Metadata.Provider;
         const rv = provider ? RunView.FromMetadataProvider(provider) : new RunView();
 
@@ -252,14 +260,14 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
                     EntityName: GITHUB_ISSUE_TASKS_FOR_INFERENCE_ENTITY,
                     ExtraFilter: `RepositoryID = '${EscapeSQLString(cleanRepoId)}' AND Status IN ('Open', 'InProgress')`,
                     Fields: ['ID', 'Name'],
-                    MaxRows: 50,
+                    MaxRows: inferenceLimits.CandidateObjectivesMaxRows,
                     ResultType: 'simple',
                 },
                 {
                     EntityName: 'MJ_BizApps_Tasks: Task Categories',
                     ExtraFilter: `IsActive = 1`,
                     Fields: ['ID', 'Name'],
-                    MaxRows: 50,
+                    MaxRows: inferenceLimits.CandidateCategoriesMaxRows,
                     ResultType: 'simple',
                 },
             ], contextUser);
@@ -275,7 +283,7 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
                     EntityName: 'MJ_BizApps_Tasks: Task Categories',
                     ExtraFilter: `IsActive = 1`,
                     Fields: ['ID', 'Name'],
-                    MaxRows: 50,
+                    MaxRows: inferenceLimits.CandidateCategoriesMaxRows,
                     ResultType: 'simple',
                 },
                 contextUser,
@@ -316,7 +324,7 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
                 skippedFields.push(candidate.field);
                 continue;
             }
-            if (candidate.confidence < 0.55 || candidate.confidence > 1) {
+            if (candidate.confidence < inferenceLimits.MinSuggestionConfidence || candidate.confidence > 1) {
                 skippedFields.push(candidate.field);
                 continue;
             }

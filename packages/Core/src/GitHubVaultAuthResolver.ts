@@ -12,6 +12,12 @@ import {
 import type { MJCompanyIntegrationEntityType } from '@memberjunction/core-entities';
 import { CredentialEngine } from '@memberjunction/credentials';
 import { GetGlobalObjectStore, IsValidUUID } from '@memberjunction/global';
+import {
+    GITHUB_APP_JWT_CLOCK_SKEW_SECONDS,
+    GITHUB_APP_JWT_EXPIRATION_SECONDS,
+    GitHubTasksLimitsResolver,
+    type GitHubTasksLimitsOverride,
+} from './GitHubTasksLimits.js';
 import { AssertValidUUID } from './sql-safety.js';
 
 export const GITHUB_INTEGRATION_NAME = 'GitHub';
@@ -23,8 +29,6 @@ export const DEFAULT_GITHUB_API_BASE_URL = 'https://api.github.com';
  * so minted 1-hour GitHub App installation tokens are reused process-wide.
  */
 export const INSTALLATION_TOKEN_CACHE_GLOBAL_KEY = '___SINGLETON__GitHubInstallationTokenCache';
-
-const TOKEN_CACHE_TTL_MS = 50 * 60 * 1000;
 
 export type GitHubPermissionLevel = 'read' | 'write' | 'admin';
 
@@ -79,6 +83,7 @@ export interface MintGitHubInstallationTokenOptions {
     fetchImpl?: typeof fetch;
     nowSeconds?: number;
     skipCache?: boolean;
+    limits?: GitHubTasksLimitsOverride;
 }
 
 export interface ResolveGitHubVaultAuthOptions {
@@ -208,8 +213,10 @@ export function BuildGitHubAppJwt(
     const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
     const payload = base64url(
         JSON.stringify({
-            iat: nowSeconds - 60,
-            exp: nowSeconds + 540,
+            // ProtocolLimit: GitHub App RS256 JWT spec allows up to 60s past clock-skew on `iat`
+            // and a maximum 10-minute (600s) `exp - iat` lifetime (+540s from `nowSeconds`).
+            iat: nowSeconds - GITHUB_APP_JWT_CLOCK_SKEW_SECONDS,
+            exp: nowSeconds + GITHUB_APP_JWT_EXPIRATION_SECONDS,
             iss: appId,
         }),
     );
@@ -296,12 +303,14 @@ export async function MintGitHubInstallationToken(
         body: Object.keys(bodyPayload).length > 0 ? JSON.stringify(bodyPayload) : undefined,
     });
 
+    const authLimits = GitHubTasksLimitsResolver.GetLimits({ override: options?.limits }).Auth;
+
     if (!response.ok) {
         let detail = '';
         try {
             const text = await response.text();
             const parsed = JSON.parse(text) as GitHubInstallationTokenExchangePayload;
-            detail = parsed.message ?? text.slice(0, 200);
+            detail = parsed.message ?? text.slice(0, authLimits.ErrorDetailMaxChars);
         } catch {
             /* ignore parse error */
         }
@@ -318,7 +327,7 @@ export async function MintGitHubInstallationToken(
 
     tokenCache.set(cacheKey, {
         token: data.token,
-        expiresAtMs: nowMs + TOKEN_CACHE_TTL_MS,
+        expiresAtMs: nowMs + authLimits.InstallationTokenCacheTtlMs,
     });
 
     return data.token;

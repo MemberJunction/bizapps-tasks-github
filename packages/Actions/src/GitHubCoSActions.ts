@@ -27,21 +27,16 @@ import {
     GITHUB_ISSUE_TASKS_ENTITY,
     GITHUB_PR_TASKS_ENTITY,
     GITHUB_REPOSITORIES_ENTITY,
+    GitHubTasksLimitsResolver,
     PEOPLE_ENTITY,
     TASK_ASSIGNMENTS_ENTITY,
     TASK_ROLES_ENTITY,
     TASKS_ENTITY_NAME,
+    type GitHubCoSLimitsConfig,
 } from '@mj-biz-apps/tasks-github-core';
 
 const MS_PER_HOUR = 3_600_000;
 const MS_PER_DAY = 86_400_000;
-const STALE_REVIEW_THRESHOLD_HOURS = 24;
-const DEFAULT_PR_LIMIT = 25;
-const MAX_PR_LIMIT = 100;
-const DEFAULT_BRIEFING_HORIZON_DAYS = 7;
-const MAX_BRIEFING_HORIZON_DAYS = 90;
-const DEFAULT_BRIEFING_LIMIT = 10;
-const MAX_BRIEFING_LIMIT = 50;
 
 export type GitHubPRStateFilter = 'Open' | 'Draft' | 'Merged' | 'Closed' | 'All';
 export type GitHubPRStateValue = mjBizAppsTasksGitHubGitHubPullRequestTaskEntity['State'];
@@ -403,6 +398,7 @@ async function resolveCallerPerson(
     contextUser: UserInfo | undefined,
     rv: RunView,
     provider: IMetadataProvider | undefined,
+    cosLimits: GitHubCoSLimitsConfig = GitHubTasksLimitsResolver.GetLimits().CoS,
 ): Promise<PersonLookupRow | null> {
     if (!contextUser?.ID) {
         return null;
@@ -441,7 +437,7 @@ async function resolveCallerPerson(
                 EntityName: PEOPLE_ENTITY,
                 ExtraFilter: `LinkedUserID = '${safeUserId}' AND Status = 'Active'`,
                 Fields: ['ID', 'FirstName', 'LastName', 'DisplayName', 'Email', 'LinkedUserID', 'Status'],
-                MaxRows: 2,
+                MaxRows: cosLimits.PersonUserLookupMaxRows,
                 ResultType: 'simple',
             },
             contextUser,
@@ -458,7 +454,7 @@ async function resolveCallerPerson(
                 EntityName: PEOPLE_ENTITY,
                 ExtraFilter: `LOWER(Email) = LOWER('${safeEmail}') AND Status = 'Active'`,
                 Fields: ['ID', 'FirstName', 'LastName', 'DisplayName', 'Email', 'LinkedUserID', 'Status'],
-                MaxRows: 5,
+                MaxRows: cosLimits.PersonEmailLookupMaxRows,
                 ResultType: 'simple',
             },
             contextUser,
@@ -482,8 +478,9 @@ async function resolveCallerGitHubIdentity(
     contextUser: UserInfo | undefined,
     rv: RunView,
     provider: IMetadataProvider | undefined,
+    cosLimits: GitHubCoSLimitsConfig,
 ): Promise<CallerGitHubIdentity | null> {
-    const person = await resolveCallerPerson(contextUser, rv, provider);
+    const person = await resolveCallerPerson(contextUser, rv, provider, cosLimits);
     if (!person || !IsValidUUID(person.ID)) {
         return null;
     }
@@ -698,6 +695,7 @@ function toReviewWaitingRow(
     assignment: mjBizAppsTasksTaskAssignmentEntity,
     reposById: ReturnType<typeof IndexByUUID<RepositoryLookupRow>>,
     nowMs: number,
+    staleReviewThresholdHours: number,
 ): GitHubReviewWaitingRow {
     const waitingAnchor = assignment.AssignedAt ?? pr.GitHubUpdatedAt ?? pr.__mj_CreatedAt ?? pr.__mj_UpdatedAt;
     const waitingHours = computeHoursSince(waitingAnchor, nowMs);
@@ -709,7 +707,7 @@ function toReviewWaitingRow(
         Repository: formatRepositoryName(pr.RepositoryID, pr.Repository, reposById),
         URL: pr.HtmlURL ?? null,
         WaitingHours: waitingHours,
-        IsStale: waitingHours > STALE_REVIEW_THRESHOLD_HOURS,
+        IsStale: waitingHours > staleReviewThresholdHours,
         IsDraft: Boolean(pr.IsDraft),
         ReviewDecision: pr.ReviewDecision ?? null,
         CIStatus: pr.ChecksStatus ?? null,
@@ -728,6 +726,7 @@ export class GetMyGitHubPRsAction extends BaseAction {
 
     protected async InternalRunAction(params: RunActionParams): Promise<ActionResultSimple> {
         try {
+            const cosLimits = GitHubTasksLimitsResolver.GetLimits().CoS;
             const stateParam = parsePRStateFilter(getStringParam(params.Params, 'State'));
             if (stateParam.error) {
                 return {
@@ -751,9 +750,9 @@ export class GetMyGitHubPRsAction extends BaseAction {
             const limitParam = parseOptionalIntParam(
                 params.Params,
                 'Limit',
-                DEFAULT_PR_LIMIT,
+                cosLimits.DefaultPRLimit,
                 1,
-                MAX_PR_LIMIT,
+                cosLimits.MaxPRLimit,
             );
             if (limitParam.error) {
                 return {
@@ -788,7 +787,7 @@ export class GetMyGitHubPRsAction extends BaseAction {
             }
 
             const rv = createRunView(params.Provider);
-            const caller = await resolveCallerGitHubIdentity(contextUser, rv, params.Provider);
+            const caller = await resolveCallerGitHubIdentity(contextUser, rv, params.Provider, cosLimits);
             if (!caller) {
                 return {
                     Success: false,
@@ -915,6 +914,7 @@ export class GetGitHubReviewsWaitingOnMeAction extends BaseAction {
 
     protected async InternalRunAction(params: RunActionParams): Promise<ActionResultSimple> {
         try {
+            const cosLimits = GitHubTasksLimitsResolver.GetLimits().CoS;
             const minAgeParam = parseOptionalNonNegativeNumberParam(params.Params, 'MinAgeHours', 0);
             if (minAgeParam.error) {
                 return {
@@ -928,9 +928,9 @@ export class GetGitHubReviewsWaitingOnMeAction extends BaseAction {
             const limitParam = parseOptionalIntParam(
                 params.Params,
                 'Limit',
-                DEFAULT_PR_LIMIT,
+                cosLimits.DefaultPRLimit,
                 1,
-                MAX_PR_LIMIT,
+                cosLimits.MaxPRLimit,
             );
             if (limitParam.error) {
                 return {
@@ -965,7 +965,7 @@ export class GetGitHubReviewsWaitingOnMeAction extends BaseAction {
             }
 
             const rv = createRunView(params.Provider);
-            const caller = await resolveCallerGitHubIdentity(contextUser, rv, params.Provider);
+            const caller = await resolveCallerGitHubIdentity(contextUser, rv, params.Provider, cosLimits);
             if (!caller) {
                 return {
                     Success: false,
@@ -1019,7 +1019,7 @@ export class GetGitHubReviewsWaitingOnMeAction extends BaseAction {
                         continue;
                     }
 
-                    const row = toReviewWaitingRow(pr, assignment, ctx.ReposById, nowMs);
+                    const row = toReviewWaitingRow(pr, assignment, ctx.ReposById, nowMs, cosLimits.StaleReviewThresholdHours);
                     if (row.WaitingHours < minAgeParam.value) {
                         continue;
                     }
@@ -1045,7 +1045,7 @@ export class GetGitHubReviewsWaitingOnMeAction extends BaseAction {
                 GitHubLogins: caller.GitHubLogins,
                 RepositoryFilter: repoFilter,
                 MinAgeHours: minAgeParam.value,
-                StaleThresholdHours: STALE_REVIEW_THRESHOLD_HOURS,
+                StaleThresholdHours: cosLimits.StaleReviewThresholdHours,
                 TotalWaiting: totalWaiting,
                 StaleCount: staleCount,
                 ReturnedCount: maskedRows.length,
@@ -1094,12 +1094,13 @@ export class GetMyGitHubBriefingAction extends BaseAction {
 
     protected async InternalRunAction(params: RunActionParams): Promise<ActionResultSimple> {
         try {
+            const cosLimits = GitHubTasksLimitsResolver.GetLimits().CoS;
             const horizonParam = parseOptionalIntParam(
                 params.Params,
                 'HorizonDays',
-                DEFAULT_BRIEFING_HORIZON_DAYS,
+                cosLimits.DefaultBriefingHorizonDays,
                 1,
-                MAX_BRIEFING_HORIZON_DAYS,
+                cosLimits.MaxBriefingHorizonDays,
             );
             if (horizonParam.error) {
                 return {
@@ -1113,9 +1114,9 @@ export class GetMyGitHubBriefingAction extends BaseAction {
             const limitParam = parseOptionalIntParam(
                 params.Params,
                 'Limit',
-                DEFAULT_BRIEFING_LIMIT,
+                cosLimits.DefaultBriefingLimit,
                 1,
-                MAX_BRIEFING_LIMIT,
+                cosLimits.MaxBriefingLimit,
                 'MaxItems',
             );
             if (limitParam.error) {
@@ -1150,7 +1151,7 @@ export class GetMyGitHubBriefingAction extends BaseAction {
             }
 
             const rv = createRunView(params.Provider);
-            const caller = await resolveCallerGitHubIdentity(contextUser, rv, params.Provider);
+            const caller = await resolveCallerGitHubIdentity(contextUser, rv, params.Provider, cosLimits);
             if (!caller) {
                 return {
                     Success: false,
@@ -1277,7 +1278,9 @@ export class GetMyGitHubBriefingAction extends BaseAction {
                 }
 
                 if (pendingReview && pendingReview.Status !== 'Completed') {
-                    waitingReviews.push(toReviewWaitingRow(pr, pendingReview, ctx.ReposById, nowMs));
+                    waitingReviews.push(
+                        toReviewWaitingRow(pr, pendingReview, ctx.ReposById, nowMs, cosLimits.StaleReviewThresholdHours),
+                    );
                 }
             }
 
@@ -1397,7 +1400,7 @@ export class GetMyGitHubBriefingAction extends BaseAction {
                 `GitHub briefing (${horizonDays}d horizon): ${myOpenPRs.length} open PR(s)` +
                 (failingCIPRCount > 0 ? ` (${failingCIPRCount} failing CI)` : '') +
                 `, ${waitingReviews.length} review(s) waiting on you` +
-                (staleReviewsCount > 0 ? ` (${staleReviewsCount} stale >${STALE_REVIEW_THRESHOLD_HOURS}h)` : '') +
+                (staleReviewsCount > 0 ? ` (${staleReviewsCount} stale >${cosLimits.StaleReviewThresholdHours}h)` : '') +
                 `, ${blockedOrFailing.length} blocked/failing GitHub task(s)` +
                 `, ${upcomingDeadlines.length} upcoming deadline(s).`;
 
