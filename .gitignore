@@ -9,8 +9,6 @@ build/
 .claude/
 .env
 *.log
-*.tsbuildinfo
-.DS_Store
 output/
 SQL Scripts/
 Schema Files/
