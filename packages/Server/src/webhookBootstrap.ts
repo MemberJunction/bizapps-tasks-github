@@ -244,6 +244,14 @@ async function resolveEffectiveWebhookSecret(
     });
 }
 
+function resolveMountMaxBodyBytes(options: GitHubWebhookMountOptions): number {
+    return typeof options.maxBodyBytes === 'number' && Number.isFinite(options.maxBodyBytes) && options.maxBodyBytes > 0
+        ? GitHubTasksLimitsResolver.GetLimits({
+              override: { Webhook: { MaxBodyBytes: Math.floor(options.maxBodyBytes) } },
+          }).Webhook.MaxBodyBytes
+        : GitHubTasksLimitsResolver.GetLimits().Webhook.MaxBodyBytes;
+}
+
 /**
  * One-line Express host bootstrap helper for mounting the GitHub Tasks webhook endpoint on MJAPI
  * without requiring host-level `express.json({ verify })` boilerplate when mounted ahead of body parsers
@@ -259,12 +267,7 @@ export function MountGitHubWebhookEndpoint(
 ): MountedGitHubWebhookEndpoint {
     const endpoint = normalizeWebhookMountPath(options.path);
     const healthEndpoint = endpoint === '/' ? '/health' : `${endpoint}/health`;
-    const maxBodyBytes =
-        typeof options.maxBodyBytes === 'number' && Number.isFinite(options.maxBodyBytes) && options.maxBodyBytes > 0
-            ? GitHubTasksLimitsResolver.GetLimits({
-                  override: { Webhook: { MaxBodyBytes: Math.floor(options.maxBodyBytes) } },
-              }).Webhook.MaxBodyBytes
-            : GitHubTasksLimitsResolver.GetLimits().Webhook.MaxBodyBytes;
+    const maxBodyBytes = resolveMountMaxBodyBytes(options);
     const autoProcessDelivery = options.autoProcessDelivery !== false;
 
     const healthHandler: GitHubWebhookRouteHandler = async (_req, res) => {
@@ -290,6 +293,7 @@ export function MountGitHubWebhookEndpoint(
     };
 
     const deliveryHandler: GitHubWebhookRouteHandler = async (req, res) => {
+        const effectiveMaxBodyBytes = resolveMountMaxBodyBytes(options);
         const eventName = readHeaderValue(req.headers, 'x-github-event');
         const signatureHeader = readHeaderValue(req.headers, 'x-hub-signature-256');
         const deliveryId = readHeaderValue(req.headers, 'x-github-delivery').trim();
@@ -297,10 +301,10 @@ export function MountGitHubWebhookEndpoint(
         const contentLengthHeader = readHeaderValue(req.headers, 'content-length').trim();
         if (contentLengthHeader.length > 0) {
             const declaredBytes = Number.parseInt(contentLengthHeader, 10);
-            if (Number.isFinite(declaredBytes) && declaredBytes > maxBodyBytes) {
+            if (Number.isFinite(declaredBytes) && declaredBytes > effectiveMaxBodyBytes) {
                 res.status(413).json({
                     ok: false,
-                    error: `Webhook payload exceeds maximum allowed size of ${maxBodyBytes} bytes`,
+                    error: `Webhook payload exceeds maximum allowed size of ${effectiveMaxBodyBytes} bytes`,
                 });
                 return;
             }
@@ -308,7 +312,7 @@ export function MountGitHubWebhookEndpoint(
 
         let rawBuffer: Buffer | null = null;
         try {
-            rawBuffer = await readRawRequestBuffer(req, maxBodyBytes);
+            rawBuffer = await readRawRequestBuffer(req, effectiveMaxBodyBytes);
         } catch (err) {
             if (err instanceof WebhookPayloadTooLargeError) {
                 res.status(413).json({

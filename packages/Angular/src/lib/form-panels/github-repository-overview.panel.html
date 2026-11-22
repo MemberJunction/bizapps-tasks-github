@@ -25,13 +25,14 @@
                 </div>
                 <div class="gh-hero__meta">
                     @if (HasDeliveryPolicy) {
-                        <span
+                        <button
+                            type="button"
                             class="gh-chip gh-chip--interactive"
                             (click)="NavigateToDeliveryPolicy()"
                             title="Linked Delivery Policy — click to view">
                             <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
                             Delivery Policy Linked
-                        </span>
+                        </button>
                     } @else {
                         <span>No Delivery Policy Linked</span>
                     }

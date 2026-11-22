@@ -119,4 +119,43 @@ describe('Server webhook limits integration', () => {
         expect(statusCode).toBe(413);
         expect(payload).toMatchObject({ ok: false });
     });
+
+    it('MountGitHubWebhookEndpoint deliveryHandler re-evaluates GitHubTasksLimitsResolver dynamically per request', async () => {
+        const app = new MockHostApp();
+        const mounted = MountGitHubWebhookEndpoint(app, {
+            webhookSecret: 'secret-dynamic',
+        });
+        expect(mounted.maxBodyBytes).toBe(DEFAULT_GITHUB_TASKS_LIMITS.Webhook.MaxBodyBytes);
+
+        // Update configured Webhook.MaxBodyBytes after mount without remounting
+        GitHubTasksLimitsResolver.Instance.RegisterConfigLimits({
+            Webhook: { MaxBodyBytes: 40 },
+        });
+
+        let statusCode = 0;
+        let payload: GitHubWebhookBootstrapJsonPayload = {};
+        const mockRes = {
+            status(code: number) {
+                statusCode = code;
+                return mockRes;
+            },
+            json(body: GitHubWebhookBootstrapJsonPayload) {
+                payload = body;
+            },
+        };
+
+        await mounted.deliveryHandler(
+            {
+                headers: {
+                    'x-github-event': 'issues',
+                    'x-hub-signature-256': 'sha256=abc',
+                },
+                rawBody: JSON.stringify({ oversized: 'x'.repeat(80) }),
+            },
+            mockRes,
+        );
+
+        expect(statusCode).toBe(413);
+        expect(payload).toMatchObject({ ok: false });
+    });
 });

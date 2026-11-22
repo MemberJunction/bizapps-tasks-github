@@ -16,13 +16,14 @@
                     </span>
 
                     @if (HasRepositoryLink) {
-                        <span
+                        <button
+                            type="button"
                             class="gh-chip gh-chip--interactive"
                             (click)="NavigateToRepository()"
                             title="Repository — click to view">
                             <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
                             {{ RepositoryName }}
-                        </span>
+                        </button>
                     } @else {
                         <span class="gh-chip" title="Repository">
                             <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
@@ -54,13 +55,14 @@
                     }
 
                     @for (task of LinkedTasks; track task.TaskID) {
-                        <span
+                        <button
+                            type="button"
                             class="gh-chip gh-chip--interactive"
                             (click)="NavigateToTask(task.TaskID)"
                             title="Linked Work-Bus Task — click to view">
                             <i class="fa-solid fa-link" aria-hidden="true"></i>
                             Task: {{ task.TaskName }}
-                        </span>
+                        </button>
                     }
                 </div>
             </div>

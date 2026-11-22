@@ -3,6 +3,11 @@ import { LoadTasksGitHubEntities } from '@mj-biz-apps/tasks-github-entities';
 import { GitHubTaskDetailBadgeComponent } from './components/github-task-detail-badge/github-task-detail-badge.component.js';
 import { GitHubTasksAdminResource } from './components/github-tasks-admin/github-tasks-admin-resource.component.js';
 import { GeneratedFormsModule } from './generated/generated-forms.module.js';
+import { CLASS_REGISTRATIONS } from './generated/class-registrations-manifest.js';
+import { mjBizAppsTasksGitHubGitHubIdentityFormComponent } from './generated/Entities/mjBizAppsTasksGitHubGitHubIdentity/mjbizappstasksgithubgithubidentity.form.component.js';
+import { mjBizAppsTasksGitHubGitHubIssueTaskFormComponent } from './generated/Entities/mjBizAppsTasksGitHubGitHubIssueTask/mjbizappstasksgithubgithubissuetask.form.component.js';
+import { mjBizAppsTasksGitHubGitHubPullRequestTaskFormComponent } from './generated/Entities/mjBizAppsTasksGitHubGitHubPullRequestTask/mjbizappstasksgithubgithubpullrequesttask.form.component.js';
+import { mjBizAppsTasksGitHubGitHubRepositoryFormComponent } from './generated/Entities/mjBizAppsTasksGitHubGitHubRepository/mjbizappstasksgithubgithubrepository.form.component.js';
 import { GitHubTasksFormPanelsModule } from './form-panels/github-tasks-form-panels.module.js';
 import { GitHubRepositoryOverviewPanel } from './form-panels/github-repository-overview.panel.js';
 import { GitHubPullRequestHeroPanel } from './form-panels/github-pull-request-hero.panel.js';
@@ -31,6 +36,11 @@ export class TasksGitHubAngularModule {}
  */
 export function LoadBizAppsTasksGitHubClient(): void {
     LoadTasksGitHubEntities();
+    void CLASS_REGISTRATIONS;
+    void mjBizAppsTasksGitHubGitHubIdentityFormComponent;
+    void mjBizAppsTasksGitHubGitHubIssueTaskFormComponent;
+    void mjBizAppsTasksGitHubGitHubPullRequestTaskFormComponent;
+    void mjBizAppsTasksGitHubGitHubRepositoryFormComponent;
     void GitHubTasksAdminResource;
     void GitHubTaskDetailBadgeComponent;
     void GitHubRepositoryOverviewPanel;
