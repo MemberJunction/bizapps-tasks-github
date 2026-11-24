@@ -1,7 +1,7 @@
 {
   "name": "bizapps-tasks-github",
   "private": true,
-  "version": "1.0.0",
+  "version": "6.3.0-edge.1",
   "license": "BUSL-1.1",
   "description": "BizApps Tasks GitHub Extension - GitHub Issue & Pull Request task subtypes, sync, webhooks, and planning field inference for MemberJunction",
   "workspaces": [

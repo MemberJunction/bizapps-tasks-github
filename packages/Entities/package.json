@@ -1,7 +1,7 @@
 {
   "name": "@mj-biz-apps/tasks-github-entities",
   "type": "module",
-  "version": "1.0.0",
+  "version": "6.3.0-edge.1",
   "description": "BizApps Tasks GitHub Extension Entity Subclasses",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -33,8 +33,8 @@
     "@memberjunction/core": "^6.3.0-edge.1",
     "@memberjunction/core-entities": "^6.3.0-edge.1",
     "@memberjunction/global": "^6.3.0-edge.1",
-    "@mj-biz-apps/common-entities": "^5.62.0",
-    "@mj-biz-apps/tasks-entities": "^1.12.0"
+    "@mj-biz-apps/common-entities": ">=5.62.0 <7.0.0",
+    "@mj-biz-apps/tasks-entities": ">=1.12.0 <7.0.0"
   },
   "repository": {
     "type": "git",
