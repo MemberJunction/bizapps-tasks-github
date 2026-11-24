@@ -33,10 +33,10 @@ importers:
   packages/Actions:
     dependencies:
       '@mj-biz-apps/tasks-github-core':
-        specifier: ^1.0.0
+        specifier: ^6.3.0-edge.1
         version: link:../Core
       '@mj-biz-apps/tasks-github-entities':
-        specifier: ^1.0.0
+        specifier: ^6.3.0-edge.1
         version: link:../Entities
     devDependencies:
       '@memberjunction/actions':
@@ -76,7 +76,7 @@ importers:
   packages/Angular:
     dependencies:
       '@mj-biz-apps/tasks-github-entities':
-        specifier: ^1.0.0
+        specifier: ^6.3.0-edge.1
         version: link:../Entities
       rxjs:
         specifier: ^7.8.2
@@ -149,7 +149,7 @@ importers:
   packages/Core:
     dependencies:
       '@mj-biz-apps/tasks-github-entities':
-        specifier: ^1.0.0
+        specifier: ^6.3.0-edge.1
         version: link:../Entities
     devDependencies:
       '@memberjunction/ai-core-plus':
@@ -238,13 +238,13 @@ importers:
         specifier: ^1.11.1
         version: 1.11.1(@memberjunction/core@6.3.0-edge.1)(@memberjunction/global@6.3.0-edge.1)
       '@mj-biz-apps/tasks-github-actions':
-        specifier: ^1.0.0
+        specifier: ^6.3.0-edge.1
         version: link:../Actions
       '@mj-biz-apps/tasks-github-core':
-        specifier: ^1.0.0
+        specifier: ^6.3.0-edge.1
         version: link:../Core
       '@mj-biz-apps/tasks-github-entities':
-        specifier: ^1.0.0
+        specifier: ^6.3.0-edge.1
         version: link:../Entities
     devDependencies:
       '@types/node':
@@ -263,13 +263,13 @@ importers:
   packages/Server:
     dependencies:
       '@mj-biz-apps/tasks-github-actions':
-        specifier: ^1.0.0
+        specifier: ^6.3.0-edge.1
         version: link:../Actions
       '@mj-biz-apps/tasks-github-core':
-        specifier: ^1.0.0
+        specifier: ^6.3.0-edge.1
         version: link:../Core
       '@mj-biz-apps/tasks-github-entities':
-        specifier: ^1.0.0
+        specifier: ^6.3.0-edge.1
         version: link:../Entities
       class-validator:
         specifier: ^0.14.3

@@ -1,7 +1,7 @@
 {
   "name": "@mj-biz-apps/tasks-github-integration-tests",
   "type": "module",
-  "version": "1.0.0",
+  "version": "6.3.0-edge.1",
   "private": true,
   "description": "Integration check bundles for BizApps Tasks GitHub Extension",
   "main": "dist/index.js",
@@ -29,9 +29,9 @@
     "@memberjunction/testing-integration": "^6.3.0-edge.1",
     "@mj-biz-apps/common-entities": "^5.62.0",
     "@mj-biz-apps/tasks-entities": "^1.11.1",
-    "@mj-biz-apps/tasks-github-actions": "^1.0.0",
-    "@mj-biz-apps/tasks-github-core": "^1.0.0",
-    "@mj-biz-apps/tasks-github-entities": "^1.0.0"
+    "@mj-biz-apps/tasks-github-actions": "^6.3.0-edge.1",
+    "@mj-biz-apps/tasks-github-core": "^6.3.0-edge.1",
+    "@mj-biz-apps/tasks-github-entities": "^6.3.0-edge.1"
   },
   "repository": {
     "type": "git",
