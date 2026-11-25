@@ -48,3 +48,4 @@ export * from './lib/tasks-github-ui.models.js';
 export * from './lib/tasks-github-ui.helpers.js';
 export * from './lib/components/github-tasks-admin/github-tasks-admin-resource.component.js';
 export * from './lib/components/github-task-detail-badge/github-task-detail-badge.component.js';
+export * from './lib/components/github-work-panel/github-work-panel.component.js';

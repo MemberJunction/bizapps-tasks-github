@@ -225,32 +225,36 @@ export interface BuildTrackedRepositoryCardsOptions {
 
 export type GitHubIssueTaskBadgeInput = Pick<
     mjBizAppsTasksGitHubGitHubIssueTaskEntityType,
-    'ID' | 'Number' | 'HtmlURL' | 'State'
+    'ID' | 'State'
 > & {
+    Number?: mjBizAppsTasksGitHubGitHubIssueTaskEntityType['Number'] | null;
+    HtmlURL?: mjBizAppsTasksGitHubGitHubIssueTaskEntityType['HtmlURL'] | null;
     StateReason?: GitHubIssueStateReason;
-    Labels?: mjBizAppsTasksGitHubGitHubIssueTaskEntityType['Labels'];
-    Milestone?: mjBizAppsTasksGitHubGitHubIssueTaskEntityType['Milestone'];
-    AuthorLogin?: mjBizAppsTasksGitHubGitHubIssueTaskEntityType['AuthorLogin'];
-    Repository?: mjBizAppsTasksGitHubGitHubIssueTaskEntityType['Repository'];
+    Labels?: mjBizAppsTasksGitHubGitHubIssueTaskEntityType['Labels'] | null;
+    Milestone?: mjBizAppsTasksGitHubGitHubIssueTaskEntityType['Milestone'] | null;
+    AuthorLogin?: mjBizAppsTasksGitHubGitHubIssueTaskEntityType['AuthorLogin'] | null;
+    Repository?: mjBizAppsTasksGitHubGitHubIssueTaskEntityType['Repository'] | null;
     LastSyncedAt?: Date | string | null;
 };
 
 export type GitHubPullRequestTaskBadgeInput = Pick<
     mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType,
-    'ID' | 'Number' | 'HtmlURL' | 'State' | 'IsDraft'
+    'ID' | 'State' | 'IsDraft'
 > & {
+    Number?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['Number'] | null;
+    HtmlURL?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['HtmlURL'] | null;
     ReviewDecision?: GitHubPullRequestReviewDecision;
     ChecksStatus?: GitHubPullRequestChecksStatus;
-    Additions?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['Additions'];
-    Deletions?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['Deletions'];
-    ChangedFiles?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['ChangedFiles'];
-    HeadBranch?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['HeadBranch'];
-    BaseBranch?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['BaseBranch'];
-    Labels?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['Labels'];
-    Milestone?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['Milestone'];
-    AuthorLogin?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['AuthorLogin'];
-    Repository?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['Repository'];
-    LinkedIssueTaskID?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['LinkedIssueTaskID'];
+    Additions?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['Additions'] | null;
+    Deletions?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['Deletions'] | null;
+    ChangedFiles?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['ChangedFiles'] | null;
+    HeadBranch?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['HeadBranch'] | null;
+    BaseBranch?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['BaseBranch'] | null;
+    Labels?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['Labels'] | null;
+    Milestone?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['Milestone'] | null;
+    AuthorLogin?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['AuthorLogin'] | null;
+    Repository?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['Repository'] | null;
+    LinkedIssueTaskID?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['LinkedIssueTaskID'] | null;
     MergedAt?: Date | string | null;
     LastSyncedAt?: Date | string | null;
 };
@@ -308,6 +312,88 @@ export interface GitHubTaskDetailBadgeViewModel {
     PullOwnedFieldLockNotice: string;
     GitHubOwnedFields: readonly string[];
     TasksOwnedFields: readonly string[];
+}
+
+// ============================================================================
+// 3b. GitHub Work Panel View-Model Types (`<mj-github-work-panel>`)
+// ============================================================================
+
+export type GitHubWorkItemKind = 'PullRequest' | 'Issue';
+export type GitHubWorkItemTone = 'success' | 'warning' | 'error' | 'merged' | 'neutral';
+export type GitHubWorkPanelMode = 'panel' | 'strip';
+export type GitHubWorkPanelFilter = 'all' | 'prs' | 'issues';
+
+export type GitHubPullRequestWorkItemInput = Omit<
+    GitHubPullRequestTaskBadgeInput,
+    'ID' | 'IsDraft' | 'Labels'
+> & {
+    ID?: string | null;
+    TaskID?: string | null;
+    IsDraft?: boolean | null;
+    Title?: string | null;
+    Name?: mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType['Name'] | null;
+    RepositoryFullName?: string | null;
+    AssigneeDisplay?: string | null;
+    HeadRef?: string | null;
+    BaseRef?: string | null;
+    Labels?: string | readonly string[] | null;
+    MilestoneTitle?: string | null;
+    UpdatedAt?: Date | string | null;
+    GitHubUpdatedAt?: Date | string | null;
+    __mj_UpdatedAt?: Date | string | null;
+};
+
+export type GitHubIssueWorkItemInput = Omit<
+    GitHubIssueTaskBadgeInput,
+    'ID' | 'Labels'
+> & {
+    ID?: string | null;
+    TaskID?: string | null;
+    Title?: string | null;
+    Name?: mjBizAppsTasksGitHubGitHubIssueTaskEntityType['Name'] | null;
+    RepositoryFullName?: string | null;
+    AssigneeDisplay?: string | null;
+    Labels?: string | readonly string[] | null;
+    MilestoneTitle?: string | null;
+    UpdatedAt?: Date | string | null;
+    GitHubUpdatedAt?: Date | string | null;
+    __mj_UpdatedAt?: Date | string | null;
+};
+
+export interface GitHubWorkItemViewModel {
+    TaskID: string;
+    Kind: GitHubWorkItemKind;
+    Number: number | null;
+    NumberLabel: string;
+    Title: string;
+    StateLabel: string;
+    StateTone: GitHubWorkItemTone;
+    HtmlURL: string | null;
+    RepositoryFullName: string | null;
+    AuthorLogin?: string | null;
+    AssigneeDisplay?: string | null;
+    HeadRef?: string | null;
+    BaseRef?: string | null;
+    BranchComparisonLabel?: string | null;
+    Additions?: number | null;
+    Deletions?: number | null;
+    ChangedFiles?: number | null;
+    DiffStatLabel?: string | null;
+    IsDraft?: boolean;
+    ReviewDecisionLabel?: string | null;
+    ReviewTone?: GitHubWorkItemTone | null;
+    ChecksStatusLabel?: string | null;
+    ChecksTone?: GitHubWorkItemTone | null;
+    Labels: readonly string[];
+    MilestoneTitle?: string | null;
+    UpdatedAt?: string | null;
+    UpdatedAtDisplay?: string | null;
+}
+
+export interface BuildGitHubWorkItemViewModelsOptions {
+    pullRequests?: readonly GitHubPullRequestWorkItemInput[] | null;
+    issues?: readonly GitHubIssueWorkItemInput[] | null;
+    repositoryFullName?: string | null;
 }
 
 // ============================================================================
