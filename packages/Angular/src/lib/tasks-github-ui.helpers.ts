@@ -4,6 +4,7 @@ import {
     GITHUB_USERNAME_REGEX,
     PULL_OWNED_FIELD_LOCK_NOTICE,
     TASKS_OWNED_PLANNING_FIELDS,
+    type BuildGitHubWorkItemViewModelsOptions,
     type BuildIdentityMappingOptions,
     type BuildTrackedRepositoryCardsOptions,
     type CompanyIntegrationEntityMapSummaryInput,
@@ -13,16 +14,21 @@ import {
     type GitHubIssueState,
     type GitHubIssueStateReason,
     type GitHubIssueTaskBadgeInput,
+    type GitHubIssueWorkItemInput,
     type GitHubPullRequestBadgeViewModel,
     type GitHubPullRequestChecksStatus,
     type GitHubPullRequestReviewDecision,
     type GitHubPullRequestState,
     type GitHubPullRequestTaskBadgeInput,
+    type GitHubPullRequestWorkItemInput,
     type GitHubRepositoryImportRule,
     type GitHubTaskDetailBadgeViewModel,
     type GitHubTasksAdminAgentContext,
     type GitHubTasksAdminTab,
     type GitHubUsernameValidationResult,
+    type GitHubWorkItemTone,
+    type GitHubWorkItemViewModel,
+    type GitHubWorkPanelFilter,
     type IdentityMappingViewModel,
     type IdentityVaultAuthStatus,
     type PersonIdentityRecordInput,
@@ -804,6 +810,265 @@ export function BuildGitHubTaskDetailBadgeViewModel(params: {
         GitHubOwnedFields: GITHUB_PULL_OWNED_TASK_FIELDS,
         TasksOwnedFields: TASKS_OWNED_PLANNING_FIELDS,
     };
+}
+
+// ============================================================================
+// 3b. GitHub Work Panel View-Model Builders (`<mj-github-work-panel>`)
+// ============================================================================
+
+export function ClassifyGitHubPullRequestStateTone(
+    state: GitHubPullRequestState,
+    isDraft: boolean,
+): GitHubWorkItemTone {
+    if (state === 'merged') {
+        return 'merged';
+    }
+    if (state === 'closed') {
+        return 'error';
+    }
+    return isDraft ? 'neutral' : 'success';
+}
+
+export function ClassifyGitHubIssueStateTone(
+    state: GitHubIssueState,
+    stateReason: GitHubIssueStateReason,
+): GitHubWorkItemTone {
+    if (state === 'open') {
+        return 'success';
+    }
+    if (stateReason === 'not_planned' || stateReason === 'duplicate') {
+        return 'error';
+    }
+    return 'merged';
+}
+
+export function ClassifyGitHubReviewTone(
+    decision: GitHubPullRequestReviewDecision,
+): GitHubWorkItemTone | null {
+    switch (decision) {
+        case 'APPROVED':
+            return 'success';
+        case 'CHANGES_REQUESTED':
+            return 'error';
+        case 'REVIEW_REQUIRED':
+            return 'warning';
+        case null:
+        default:
+            return null;
+    }
+}
+
+export function ClassifyGitHubChecksTone(
+    checksStatus: GitHubPullRequestChecksStatus,
+): GitHubWorkItemTone | null {
+    switch (checksStatus) {
+        case 'Passing':
+            return 'success';
+        case 'Failing':
+            return 'error';
+        case 'Pending':
+            return 'warning';
+        case 'Neutral':
+            return 'neutral';
+        case null:
+        default:
+            return null;
+    }
+}
+
+function normalizeWorkItemLabels(raw: string | readonly string[] | null | undefined): string[] {
+    if (!raw) {
+        return [];
+    }
+    if (Array.isArray(raw)) {
+        const out: string[] = [];
+        for (const entry of raw) {
+            if (typeof entry === 'string' && entry.trim().length > 0) {
+                out.push(entry.trim());
+            }
+        }
+        return out;
+    }
+    if (typeof raw === 'string') {
+        return ParseGitHubLabelsJson(raw);
+    }
+    return [];
+}
+
+function isOpenWorkItemTone(tone: GitHubWorkItemTone): boolean {
+    return tone === 'success' || tone === 'neutral';
+}
+
+/**
+ * Builds a unified, deterministically sorted array of `GitHubWorkItemViewModel` cards
+ * from pre-loaded or fetched GitHub Pull Request and Issue task rows, reusing
+ * `BuildGitHubPullRequestBadgeViewModel`, `BuildGitHubIssueBadgeViewModel`,
+ * `FormatChecksStatusLabel`, and `FormatReviewDecisionLabel`.
+ */
+export function BuildGitHubWorkItemViewModels(
+    options: BuildGitHubWorkItemViewModelsOptions,
+): GitHubWorkItemViewModel[] {
+    const fallbackRepo = (options.repositoryFullName ?? '').trim() || null;
+    const items: GitHubWorkItemViewModel[] = [];
+
+    for (const pr of options.pullRequests ?? []) {
+        const taskId = (pr.TaskID ?? pr.ID ?? '').trim();
+        const headBranch = (pr.HeadBranch ?? pr.HeadRef ?? '').trim() || null;
+        const baseBranch = (pr.BaseBranch ?? pr.BaseRef ?? '').trim() || null;
+        const milestone = (pr.Milestone ?? pr.MilestoneTitle ?? '').trim() || null;
+        const explicitRepo = (pr.RepositoryFullName ?? pr.Repository ?? '').trim() || null;
+
+        const badge = BuildGitHubPullRequestBadgeViewModel({
+            ID: taskId,
+            Number: pr.Number ?? undefined,
+            HtmlURL: pr.HtmlURL ?? undefined,
+            State: pr.State ?? 'open',
+            IsDraft: Boolean(pr.IsDraft),
+            ReviewDecision: pr.ReviewDecision ?? null,
+            ChecksStatus: pr.ChecksStatus ?? null,
+            Additions: pr.Additions ?? undefined,
+            Deletions: pr.Deletions ?? undefined,
+            ChangedFiles: pr.ChangedFiles ?? undefined,
+            HeadBranch: headBranch ?? undefined,
+            BaseBranch: baseBranch ?? undefined,
+            Labels: typeof pr.Labels === 'string' ? pr.Labels : undefined,
+            Milestone: milestone ?? undefined,
+            AuthorLogin: pr.AuthorLogin ?? undefined,
+            Repository: explicitRepo ?? fallbackRepo ?? undefined,
+            LinkedIssueTaskID: pr.LinkedIssueTaskID ?? undefined,
+            MergedAt: pr.MergedAt ?? null,
+            LastSyncedAt: pr.LastSyncedAt ?? null,
+        });
+
+        const hasDiffStats =
+            (typeof pr.Additions === 'number' && Number.isFinite(pr.Additions)) ||
+            (typeof pr.Deletions === 'number' && Number.isFinite(pr.Deletions));
+        const labels = Array.isArray(pr.Labels) ? normalizeWorkItemLabels(pr.Labels) : badge.Labels;
+        const title =
+            (pr.Title ?? pr.Name ?? '').trim() ||
+            (badge.Number !== null ? `Pull Request #${badge.Number}` : 'Pull Request');
+        const updatedAt = NormalizeIsoTimestamp(
+            pr.UpdatedAt ?? pr.GitHubUpdatedAt ?? pr.__mj_UpdatedAt ?? pr.LastSyncedAt,
+        );
+        const branchFlow =
+            badge.HeadBranch && badge.BaseBranch
+                ? `${badge.HeadBranch} → ${badge.BaseBranch}`
+                : badge.HeadBranch ?? badge.BaseBranch;
+
+        items.push({
+            TaskID: taskId,
+            Kind: 'PullRequest',
+            Number: badge.Number,
+            NumberLabel: badge.Number !== null ? `PR #${badge.Number}` : 'PR',
+            Title: title,
+            StateLabel: badge.StateLabel,
+            StateTone: ClassifyGitHubPullRequestStateTone(badge.PRState, badge.IsDraft),
+            HtmlURL: badge.HtmlUrl,
+            RepositoryFullName: badge.RepositoryFullName ?? fallbackRepo,
+            AuthorLogin: badge.AuthorLogin,
+            AssigneeDisplay: (pr.AssigneeDisplay ?? '').trim() || null,
+            HeadRef: badge.HeadBranch,
+            BaseRef: badge.BaseBranch,
+            BranchComparisonLabel: branchFlow,
+            Additions: hasDiffStats ? badge.Additions : null,
+            Deletions: hasDiffStats ? badge.Deletions : null,
+            ChangedFiles: badge.ChangedFiles,
+            DiffStatLabel: hasDiffStats ? badge.DiffStatLabel : null,
+            IsDraft: badge.IsDraft,
+            ReviewDecisionLabel: badge.ReviewDecisionLabel,
+            ReviewTone: ClassifyGitHubReviewTone(badge.ReviewDecision),
+            ChecksStatusLabel: badge.ChecksStatusLabel,
+            ChecksTone: ClassifyGitHubChecksTone(badge.ChecksStatus),
+            Labels: labels,
+            MilestoneTitle: badge.Milestone,
+            UpdatedAt: updatedAt,
+            UpdatedAtDisplay: updatedAt ? FormatDisplayTimestamp(updatedAt, '') : null,
+        });
+    }
+
+    for (const issue of options.issues ?? []) {
+        const taskId = (issue.TaskID ?? issue.ID ?? '').trim();
+        const milestone = (issue.Milestone ?? issue.MilestoneTitle ?? '').trim() || null;
+        const explicitRepo = (issue.RepositoryFullName ?? issue.Repository ?? '').trim() || null;
+
+        const badge = BuildGitHubIssueBadgeViewModel({
+            ID: taskId,
+            Number: issue.Number ?? undefined,
+            HtmlURL: issue.HtmlURL ?? undefined,
+            State: issue.State ?? 'open',
+            StateReason: issue.StateReason ?? null,
+            Labels: typeof issue.Labels === 'string' ? issue.Labels : undefined,
+            Milestone: milestone ?? undefined,
+            AuthorLogin: issue.AuthorLogin ?? undefined,
+            Repository: explicitRepo ?? fallbackRepo ?? undefined,
+            LastSyncedAt: issue.LastSyncedAt ?? null,
+        });
+
+        const labels = Array.isArray(issue.Labels) ? normalizeWorkItemLabels(issue.Labels) : badge.Labels;
+        const title =
+            (issue.Title ?? issue.Name ?? '').trim() ||
+            (badge.Number !== null ? `Issue #${badge.Number}` : 'Issue');
+        const updatedAt = NormalizeIsoTimestamp(
+            issue.UpdatedAt ?? issue.GitHubUpdatedAt ?? issue.__mj_UpdatedAt ?? issue.LastSyncedAt,
+        );
+
+        items.push({
+            TaskID: taskId,
+            Kind: 'Issue',
+            Number: badge.Number,
+            NumberLabel: badge.Number !== null ? `Issue #${badge.Number}` : 'Issue',
+            Title: title,
+            StateLabel: badge.StateLabel,
+            StateTone: ClassifyGitHubIssueStateTone(badge.IssueState, badge.StateReason),
+            HtmlURL: badge.HtmlUrl,
+            RepositoryFullName: badge.RepositoryFullName ?? fallbackRepo,
+            AuthorLogin: badge.AuthorLogin,
+            AssigneeDisplay: (issue.AssigneeDisplay ?? '').trim() || null,
+            Labels: labels,
+            MilestoneTitle: badge.Milestone,
+            UpdatedAt: updatedAt,
+            UpdatedAtDisplay: updatedAt ? FormatDisplayTimestamp(updatedAt, '') : null,
+        });
+    }
+
+    return items.sort((a, b) => {
+        const aOpen = isOpenWorkItemTone(a.StateTone);
+        const bOpen = isOpenWorkItemTone(b.StateTone);
+        if (aOpen !== bOpen) {
+            return aOpen ? -1 : 1;
+        }
+        if (a.UpdatedAt && b.UpdatedAt && a.UpdatedAt !== b.UpdatedAt) {
+            return b.UpdatedAt.localeCompare(a.UpdatedAt);
+        }
+        if (a.UpdatedAt && !b.UpdatedAt) {
+            return -1;
+        }
+        if (!a.UpdatedAt && b.UpdatedAt) {
+            return 1;
+        }
+        if (a.Kind !== b.Kind) {
+            return a.Kind === 'PullRequest' ? -1 : 1;
+        }
+        const aNum = a.Number ?? -1;
+        const bNum = b.Number ?? -1;
+        if (aNum !== bNum) {
+            return bNum - aNum;
+        }
+        return a.Title.localeCompare(b.Title);
+    });
+}
+
+export function FilterGitHubWorkItems(
+    items: readonly GitHubWorkItemViewModel[],
+    filter: GitHubWorkPanelFilter,
+): GitHubWorkItemViewModel[] {
+    if (filter === 'prs') {
+        return items.filter((item) => item.Kind === 'PullRequest');
+    }
+    if (filter === 'issues') {
+        return items.filter((item) => item.Kind === 'Issue');
+    }
+    return [...items];
 }
 
 // ============================================================================

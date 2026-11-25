@@ -2,6 +2,7 @@ import { NgModule } from '@angular/core';
 import { LoadTasksGitHubEntities } from '@mj-biz-apps/tasks-github-entities';
 import { GitHubTaskDetailBadgeComponent } from './components/github-task-detail-badge/github-task-detail-badge.component.js';
 import { GitHubTasksAdminResource } from './components/github-tasks-admin/github-tasks-admin-resource.component.js';
+import { GitHubWorkPanelComponent } from './components/github-work-panel/github-work-panel.component.js';
 import { GeneratedFormsModule } from './generated/generated-forms.module.js';
 import { CLASS_REGISTRATIONS } from './generated/class-registrations-manifest.js';
 import { mjBizAppsTasksGitHubGitHubIdentityFormComponent } from './generated/Entities/mjBizAppsTasksGitHubGitHubIdentity/mjbizappstasksgithubgithubidentity.form.component.js';
@@ -18,12 +19,14 @@ import { TaskGitHubLinksPanel } from './form-panels/task-github-links.panel.js';
     imports: [
         GitHubTasksAdminResource,
         GitHubTaskDetailBadgeComponent,
+        GitHubWorkPanelComponent,
         GeneratedFormsModule,
         GitHubTasksFormPanelsModule,
     ],
     exports: [
         GitHubTasksAdminResource,
         GitHubTaskDetailBadgeComponent,
+        GitHubWorkPanelComponent,
         GeneratedFormsModule,
         GitHubTasksFormPanelsModule,
     ],
@@ -43,6 +46,7 @@ export function LoadBizAppsTasksGitHubClient(): void {
     void mjBizAppsTasksGitHubGitHubRepositoryFormComponent;
     void GitHubTasksAdminResource;
     void GitHubTaskDetailBadgeComponent;
+    void GitHubWorkPanelComponent;
     void GitHubRepositoryOverviewPanel;
     void GitHubPullRequestHeroPanel;
     void GitHubIssueHeroPanel;

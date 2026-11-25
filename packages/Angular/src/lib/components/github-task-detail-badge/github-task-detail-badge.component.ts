@@ -21,10 +21,13 @@ import {
 /**
  * Embeddable badge & metadata strip (`<mj-tasks-github-detail-badge>`) for BizApps Tasks detail panels/forms.
  *
- * Given `@Input() taskId`, queries `MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks` and
- * `MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks` by shared primary key (`ID = '<taskId>'`)
- * and renders PR/Issue status chips, diff stat pills (`+add / -del`), branch comparison, CI check and
- * review decision badges, external GitHub link, and the pull-owned field lock indicator.
+ * Supports two data modes:
+ * - **Controlled mode:** Supply `[PullRequest]` and/or `[Issue]` to render pre-loaded subtype rows with
+ *   zero `RunView` round-trips.
+ * - **Self-fetching mode:** Supply `[taskId]` (or `[TaskID]`) with `[PullRequest]` and `[Issue]` unset (`null`)
+ *   to query `MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks` and
+ *   `MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks` by shared primary key (`ID = '<taskId>'`)
+ *   using `this.ProviderToUse` (`new RunView(this.RunViewToUse)`).
  */
 @Component({
     selector: 'mj-tasks-github-detail-badge',
@@ -38,7 +41,10 @@ export class GitHubTaskDetailBadgeComponent extends BaseAngularComponent impleme
     private readonly cdr = inject(ChangeDetectorRef, { optional: true });
     private _taskId: string | null = null;
     private _showOwnershipNotice = true;
+    private _pullRequest: GitHubPullRequestTaskBadgeInput | null = null;
+    private _issue: GitHubIssueTaskBadgeInput | null = null;
     private _loadSequence = 0;
+    private _refreshQueued = false;
     private _destroyed = false;
 
     public IsLoading = false;
@@ -56,7 +62,16 @@ export class GitHubTaskDetailBadgeComponent extends BaseAngularComponent impleme
             return;
         }
         this._taskId = normalized;
-        void this.loadForTask(normalized);
+        this.scheduleRefresh();
+    }
+
+    @Input()
+    public get TaskID(): string | null {
+        return this._taskId;
+    }
+
+    public set TaskID(value: string | null) {
+        this.taskId = value;
     }
 
     @Input()
@@ -73,12 +88,98 @@ export class GitHubTaskDetailBadgeComponent extends BaseAngularComponent impleme
         this.cdr?.markForCheck();
     }
 
+    @Input()
+    public get ShowOwnershipNotice(): boolean {
+        return this._showOwnershipNotice;
+    }
+
+    public set ShowOwnershipNotice(value: boolean) {
+        this.showOwnershipNotice = value;
+    }
+
+    @Input()
+    public get PullRequest(): GitHubPullRequestTaskBadgeInput | null {
+        return this._pullRequest;
+    }
+
+    public set PullRequest(value: GitHubPullRequestTaskBadgeInput | null) {
+        const next = value ?? null;
+        if (this._pullRequest === next) {
+            return;
+        }
+        this._pullRequest = next;
+        this.scheduleRefresh();
+    }
+
+    @Input()
+    public get Issue(): GitHubIssueTaskBadgeInput | null {
+        return this._issue;
+    }
+
+    public set Issue(value: GitHubIssueTaskBadgeInput | null) {
+        const next = value ?? null;
+        if (this._issue === next) {
+            return;
+        }
+        this._issue = next;
+        this.scheduleRefresh();
+    }
+
+    public get IsControlledMode(): boolean {
+        return this._pullRequest !== null || this._issue !== null;
+    }
+
     public ngOnDestroy(): void {
         this._destroyed = true;
     }
 
     public async Reload(): Promise<void> {
+        if (this.IsControlledMode) {
+            this.applyControlledInputs();
+            return;
+        }
         await this.loadForTask(this._taskId);
+    }
+
+    private scheduleRefresh(): void {
+        if (this.IsControlledMode) {
+            this.applyControlledInputs();
+            return;
+        }
+        if (this._refreshQueued) {
+            return;
+        }
+        this._refreshQueued = true;
+        void Promise.resolve().then(() => {
+            this._refreshQueued = false;
+            if (this._destroyed) {
+                return;
+            }
+            if (this.IsControlledMode) {
+                this.applyControlledInputs();
+                return;
+            }
+            void this.loadForTask(this._taskId);
+        });
+    }
+
+    private applyControlledInputs(): void {
+        // Invalidate any in-flight self-fetch so stale responses cannot overwrite controlled state
+        this._loadSequence++;
+        this.IsLoading = false;
+        this.LoadError = null;
+        const resolvedTaskId =
+            this._taskId ??
+            this._pullRequest?.ID?.trim() ??
+            this._issue?.ID?.trim() ??
+            '';
+        const vm = BuildGitHubTaskDetailBadgeViewModel({
+            taskID: resolvedTaskId,
+            issueTask: this._issue,
+            pullRequestTask: this._pullRequest,
+        });
+        this.BadgeViewModel = vm.HasGitHubLink ? vm : null;
+        this.cdr?.markForCheck();
     }
 
     private async loadForTask(targetTaskId: string | null): Promise<void> {

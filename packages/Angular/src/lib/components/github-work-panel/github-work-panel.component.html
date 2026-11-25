@@ -1,0 +1,323 @@
+@if (Mode === 'strip') {
+    <section class="gh-strip" aria-label="Synced GitHub activity summary">
+        <div class="gh-strip-header">
+            <span class="gh-strip-label">
+                <i class="fa-brands fa-github" aria-hidden="true"></i>
+                <strong>Synced GitHub Activity</strong>
+                <span class="gh-strip-counts">({{ StripCountSummary }})</span>
+            </span>
+
+            @if (TotalCount > 0) {
+                <button
+                    type="button"
+                    class="gh-strip-view-all"
+                    (click)="OnViewAllClick()">
+                    <span>View all</span>
+                    <i class="fa-solid fa-arrow-right" aria-hidden="true"></i>
+                </button>
+            }
+        </div>
+
+        @if (IsLoading) {
+            <div class="gh-inline-state" role="status" aria-live="polite">
+                <i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>
+                <span>Loading GitHub items…</span>
+            </div>
+        } @else if (LoadError) {
+            <div class="gh-inline-error" role="alert">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <span>{{ LoadError }}</span>
+            </div>
+        } @else if (StripItems.length === 0) {
+            <div class="gh-inline-state">{{ EmptyMessage }}</div>
+        } @else {
+            <div class="gh-strip-pills" role="list">
+                @for (item of StripItems; track TrackItem(item)) {
+                    <div
+                        class="gh-strip-pill"
+                        role="listitem"
+                        [attr.data-tone]="item.StateTone">
+                        <button
+                            type="button"
+                            class="gh-strip-pill-trigger"
+                            [title]="item.NumberLabel + ' · ' + item.Title + ' (' + item.StateLabel + ')'"
+                            (click)="OnItemClick(item)">
+                            <span class="gh-strip-pill-dot" [attr.data-tone]="item.StateTone" aria-hidden="true"></span>
+                            @if (item.Kind === 'PullRequest') {
+                                <i class="fa-solid fa-code-pull-request gh-strip-pill-icon" aria-hidden="true"></i>
+                            } @else {
+                                <i class="fa-regular fa-circle-dot gh-strip-pill-icon" aria-hidden="true"></i>
+                            }
+                            <span class="gh-strip-pill-number">{{ item.NumberLabel }}</span>
+                            <span class="gh-strip-pill-title">{{ item.Title }}</span>
+                        </button>
+                        @if (item.HtmlURL) {
+                            <a
+                                class="gh-strip-pill-ext"
+                                [href]="item.HtmlURL"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                [attr.aria-label]="'Open ' + item.NumberLabel + ' on GitHub'"
+                                (click)="$event.stopPropagation()">
+                                <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                            </a>
+                        }
+                    </div>
+                }
+
+                @if (HiddenStripCount > 0) {
+                    <button
+                        type="button"
+                        class="gh-strip-more-pill"
+                        (click)="OnViewAllClick()">
+                        +{{ HiddenStripCount }} more
+                    </button>
+                }
+            </div>
+        }
+    </section>
+} @else {
+    <section class="gh-panel" [attr.aria-label]="Title">
+        <header class="gh-panel-header">
+            <div class="gh-panel-heading-group">
+                <span class="gh-panel-icon" aria-hidden="true">
+                    <i class="fa-brands fa-github"></i>
+                </span>
+                <div class="gh-panel-titles">
+                    <div class="gh-panel-title-row">
+                        <h3 class="gh-panel-title">{{ Title }}</h3>
+                        <span class="gh-count-pill" [attr.aria-label]="TotalCount + ' linked items'">
+                            {{ TotalCount }}
+                        </span>
+                    </div>
+                    @if (EffectiveRepositoryFullName) {
+                        <div class="gh-panel-subtitle">
+                            <i class="fa-solid fa-book-bookmark" aria-hidden="true"></i>
+                            <span>{{ EffectiveRepositoryFullName }}</span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="gh-panel-header-extra">
+                <ng-content select="[repo-header-extra]"></ng-content>
+            </div>
+        </header>
+
+        @if (ShowFilterTabs && TotalCount > 0) {
+            <div class="gh-filter-bar" role="tablist" aria-label="Filter GitHub work items">
+                <button
+                    type="button"
+                    role="tab"
+                    class="gh-filter-tab"
+                    [class.gh-filter-tab-active]="ActiveFilter === 'all'"
+                    [attr.aria-selected]="ActiveFilter === 'all'"
+                    (click)="SetFilter('all')">
+                    <span>All</span>
+                    <span class="gh-filter-count">{{ TotalCount }}</span>
+                </button>
+                <button
+                    type="button"
+                    role="tab"
+                    class="gh-filter-tab"
+                    [class.gh-filter-tab-active]="ActiveFilter === 'prs'"
+                    [attr.aria-selected]="ActiveFilter === 'prs'"
+                    (click)="SetFilter('prs')">
+                    <i class="fa-solid fa-code-pull-request" aria-hidden="true"></i>
+                    <span>PRs</span>
+                    <span class="gh-filter-count">{{ PullRequestCount }}</span>
+                </button>
+                <button
+                    type="button"
+                    role="tab"
+                    class="gh-filter-tab"
+                    [class.gh-filter-tab-active]="ActiveFilter === 'issues'"
+                    [attr.aria-selected]="ActiveFilter === 'issues'"
+                    (click)="SetFilter('issues')">
+                    <i class="fa-regular fa-circle-dot" aria-hidden="true"></i>
+                    <span>Issues</span>
+                    <span class="gh-filter-count">{{ IssueCount }}</span>
+                </button>
+            </div>
+        }
+
+        @if (ShowOwnershipNotice) {
+            <div class="gh-ownership-notice" role="note">
+                <i class="fa-solid fa-lock" aria-hidden="true"></i>
+                <span>{{ OwnershipNoticeText }}</span>
+            </div>
+        }
+
+        @if (IsLoading) {
+            <div class="gh-panel-state" role="status" aria-live="polite">
+                <i class="fa-solid fa-circle-notch fa-spin" aria-hidden="true"></i>
+                <span>Loading synced GitHub pull requests and issues…</span>
+            </div>
+        } @else if (LoadError) {
+            <div class="gh-panel-error" role="alert">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <span>{{ LoadError }}</span>
+            </div>
+        } @else if (FilteredItems.length === 0) {
+            <div class="gh-panel-empty">
+                <i class="fa-brands fa-github gh-empty-icon" aria-hidden="true"></i>
+                <p class="gh-empty-text">{{ ActiveEmptyMessage }}</p>
+            </div>
+        } @else {
+            <div class="gh-card-list" role="list">
+                @for (item of FilteredItems; track TrackItem(item)) {
+                    <article
+                        class="gh-work-card"
+                        role="button"
+                        tabindex="0"
+                        [attr.data-kind]="item.Kind"
+                        [attr.data-tone]="item.StateTone"
+                        [attr.aria-label]="item.NumberLabel + ': ' + item.Title + ', ' + item.StateLabel"
+                        (click)="OnItemClick(item)"
+                        (keydown)="OnItemKeydown($event, item)">
+                        <div class="gh-card-top">
+                            <div class="gh-card-badges">
+                                <span class="gh-kind-id">
+                                    @if (item.Kind === 'PullRequest') {
+                                        <i class="fa-solid fa-code-pull-request" aria-hidden="true"></i>
+                                    } @else {
+                                        <i class="fa-regular fa-circle-dot" aria-hidden="true"></i>
+                                    }
+                                    <strong>{{ item.NumberLabel }}</strong>
+                                </span>
+
+                                <span class="gh-chip" [attr.data-tone]="item.StateTone">
+                                    {{ item.StateLabel }}
+                                </span>
+
+                                @if (item.IsDraft && item.StateLabel !== 'Draft') {
+                                    <span class="gh-chip" data-tone="neutral">Draft</span>
+                                }
+                            </div>
+
+                            @if (item.HtmlURL) {
+                                <a
+                                    class="gh-ext-link"
+                                    [href]="item.HtmlURL"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    [attr.aria-label]="'Open ' + item.NumberLabel + ' on GitHub'"
+                                    (click)="$event.stopPropagation()">
+                                    <span>GitHub</span>
+                                    <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+                                </a>
+                            }
+                        </div>
+
+                        <h4 class="gh-card-title">{{ item.Title }}</h4>
+
+                        @if (
+                            item.BranchComparisonLabel ||
+                            (ShowDiffStats && item.DiffStatLabel) ||
+                            item.ChecksStatusLabel ||
+                            item.ReviewDecisionLabel
+                        ) {
+                            <div class="gh-card-telemetry">
+                                @if (item.BranchComparisonLabel) {
+                                    <span class="gh-branch-pill" title="Pull request source and base branches">
+                                        <i class="fa-solid fa-code-branch" aria-hidden="true"></i>
+                                        <code>{{ item.BranchComparisonLabel }}</code>
+                                    </span>
+                                }
+
+                                @if (ShowDiffStats && item.DiffStatLabel) {
+                                    <span class="gh-diff-pill" title="Lines added and deleted">
+                                        <span class="gh-diff-add">+{{ item.Additions ?? 0 }}</span>
+                                        <span class="gh-diff-sep">/</span>
+                                        <span class="gh-diff-del">-{{ item.Deletions ?? 0 }}</span>
+                                        @if (item.ChangedFiles != null) {
+                                            <span class="gh-diff-files">
+                                                ({{ item.ChangedFiles }} {{ item.ChangedFiles === 1 ? 'file' : 'files' }})
+                                            </span>
+                                        }
+                                    </span>
+                                }
+
+                                @if (item.ChecksStatusLabel) {
+                                    <span class="gh-chip" [attr.data-tone]="item.ChecksTone ?? 'neutral'">
+                                        @switch (item.ChecksTone) {
+                                            @case ('success') {
+                                                <i class="fa-solid fa-circle-check" aria-hidden="true"></i>
+                                            }
+                                            @case ('error') {
+                                                <i class="fa-solid fa-circle-xmark" aria-hidden="true"></i>
+                                            }
+                                            @case ('warning') {
+                                                <i class="fa-solid fa-clock" aria-hidden="true"></i>
+                                            }
+                                            @default {
+                                                <i class="fa-solid fa-circle-minus" aria-hidden="true"></i>
+                                            }
+                                        }
+                                        <span>{{ item.ChecksStatusLabel }}</span>
+                                    </span>
+                                }
+
+                                @if (item.ReviewDecisionLabel) {
+                                    <span class="gh-chip" [attr.data-tone]="item.ReviewTone ?? 'neutral'">
+                                        <i class="fa-solid fa-user-check" aria-hidden="true"></i>
+                                        <span>{{ item.ReviewDecisionLabel }}</span>
+                                    </span>
+                                }
+                            </div>
+                        }
+
+                        @if (item.Labels.length > 0 || item.MilestoneTitle) {
+                            <div class="gh-card-labels">
+                                @if (item.MilestoneTitle) {
+                                    <span class="gh-milestone-tag">
+                                        <i class="fa-solid fa-flag-checkered" aria-hidden="true"></i>
+                                        <span>{{ item.MilestoneTitle }}</span>
+                                    </span>
+                                }
+                                @for (lbl of item.Labels; track lbl) {
+                                    <span class="gh-label-pill">{{ lbl }}</span>
+                                }
+                            </div>
+                        }
+
+                        @if (
+                            item.AuthorLogin ||
+                            item.AssigneeDisplay ||
+                            (item.RepositoryFullName && item.RepositoryFullName !== EffectiveRepositoryFullName) ||
+                            item.UpdatedAtDisplay
+                        ) {
+                            <footer class="gh-card-footer">
+                                <div class="gh-card-people">
+                                    @if (item.AuthorLogin) {
+                                        <span class="gh-meta-item" title="GitHub author">
+                                            <i class="fa-regular fa-user" aria-hidden="true"></i>
+                                            <span>&#64;{{ item.AuthorLogin }}</span>
+                                        </span>
+                                    }
+                                    @if (item.AssigneeDisplay) {
+                                        <span class="gh-meta-item" title="Assignee">
+                                            <i class="fa-solid fa-user-tag" aria-hidden="true"></i>
+                                            <span>{{ item.AssigneeDisplay }}</span>
+                                        </span>
+                                    }
+                                    @if (item.RepositoryFullName && item.RepositoryFullName !== EffectiveRepositoryFullName) {
+                                        <span class="gh-meta-item" title="Repository">
+                                            <i class="fa-solid fa-book-bookmark" aria-hidden="true"></i>
+                                            <span>{{ item.RepositoryFullName }}</span>
+                                        </span>
+                                    }
+                                </div>
+                                @if (item.UpdatedAtDisplay) {
+                                    <span class="gh-meta-time" [title]="'Updated ' + item.UpdatedAtDisplay">
+                                        {{ item.UpdatedAtDisplay }}
+                                    </span>
+                                }
+                            </footer>
+                        }
+                    </article>
+                }
+            </div>
+        }
+    </section>
+}
