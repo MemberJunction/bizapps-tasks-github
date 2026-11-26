@@ -4,13 +4,11 @@ import type {
 } from '@memberjunction/core-entities';
 import type {
     mjBizAppsTasksGitHubGitHubIdentityEntity,
-    mjBizAppsTasksGitHubGitHubIdentityEntityType,
     mjBizAppsTasksGitHubGitHubIssueTaskEntity,
     mjBizAppsTasksGitHubGitHubIssueTaskEntityType,
     mjBizAppsTasksGitHubGitHubPullRequestTaskEntity,
     mjBizAppsTasksGitHubGitHubPullRequestTaskEntityType,
     mjBizAppsTasksGitHubGitHubRepositoryEntity,
-    mjBizAppsTasksGitHubGitHubRepositoryEntityType,
 } from '@mj-biz-apps/tasks-github-entities';
 
 // ============================================================================
@@ -110,11 +108,11 @@ export interface PersonIdentityRecordInput {
 }
 
 export type GitHubIdentityRecordInput = Pick<
-    mjBizAppsTasksGitHubGitHubIdentityEntityType,
+    mjBizAppsTasksGitHubGitHubIdentityEntity,
     'ID' | 'PersonID' | 'GitHubLogin' | 'IsActive'
 > & {
-    GitHubUserID?: mjBizAppsTasksGitHubGitHubIdentityEntityType['GitHubUserID'];
-    Person?: mjBizAppsTasksGitHubGitHubIdentityEntityType['Person'];
+    GitHubUserID?: mjBizAppsTasksGitHubGitHubIdentityEntity['GitHubUserID'];
+    Person?: mjBizAppsTasksGitHubGitHubIdentityEntity['Person'];
     __mj_UpdatedAt?: Date | string | null;
     /**
      * Optional MJ Vault 3LO OAuth credential reference when surfaced by host projection or vault lookup.
@@ -163,13 +161,13 @@ export interface BuildIdentityMappingOptions {
 // ============================================================================
 
 export type GitHubRepositoryCardInput = Pick<
-    mjBizAppsTasksGitHubGitHubRepositoryEntityType,
+    mjBizAppsTasksGitHubGitHubRepositoryEntity,
     'ID' | 'Owner' | 'Name' | 'DefaultBranch' | 'IsTracked' | 'ImportRule'
 > & {
-    InstallationID?: mjBizAppsTasksGitHubGitHubRepositoryEntityType['InstallationID'];
-    OrganizationID?: mjBizAppsTasksGitHubGitHubRepositoryEntityType['OrganizationID'];
-    Organization?: mjBizAppsTasksGitHubGitHubRepositoryEntityType['Organization'];
-    DeliveryPolicyID?: mjBizAppsTasksGitHubGitHubRepositoryEntityType['DeliveryPolicyID'];
+    InstallationID?: mjBizAppsTasksGitHubGitHubRepositoryEntity['InstallationID'];
+    OrganizationID?: mjBizAppsTasksGitHubGitHubRepositoryEntity['OrganizationID'];
+    Organization?: mjBizAppsTasksGitHubGitHubRepositoryEntity['Organization'];
+    DeliveryPolicyID?: mjBizAppsTasksGitHubGitHubRepositoryEntity['DeliveryPolicyID'];
     DefaultProjectID?: string | null;
     CompanyIntegrationID?: string | null;
     LastSyncedAt?: Date | string | null;

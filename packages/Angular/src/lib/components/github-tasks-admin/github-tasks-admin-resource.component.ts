@@ -27,9 +27,10 @@ import {
     MJStatBadgeComponent,
 } from '@memberjunction/ng-ui-components';
 import { ResolvePersonIDForUser } from '@mj-biz-apps/common-entities';
-import type {
-    mjBizAppsTasksGitHubGitHubIdentityEntity,
-    mjBizAppsTasksGitHubGitHubRepositoryEntity,
+import {
+    GitHubTasksEngineBase,
+    type mjBizAppsTasksGitHubGitHubIdentityEntity,
+    type mjBizAppsTasksGitHubGitHubRepositoryEntity,
 } from '@mj-biz-apps/tasks-github-entities';
 import {
     BuildGitHubTasksAdminAgentContext,
@@ -225,7 +226,7 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
         this.cdr?.markForCheck();
     }
 
-    public async LoadData(): Promise<void> {
+    public async LoadData(forceRefresh: boolean = false): Promise<void> {
         this.IsLoading = true;
         this.cdr?.markForCheck();
 
@@ -233,6 +234,7 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
             const provider = this.ProviderToUse;
             const currentUser = provider?.CurrentUser;
             const rv = new RunView(this.RunViewToUse);
+            const engine = GitHubTasksEngineBase.Instance;
 
             const hasEntity = (entityName: string): boolean => {
                 const entities = Array.isArray(provider?.Entities) ? provider.Entities : [];
@@ -242,16 +244,6 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
             const webhookEntityName = this.resolveWebhookDeliveryEntityName();
 
             const batchQueries: RunViewParams[] = [
-                {
-                    EntityName: GITHUB_IDENTITIES_ENTITY_NAME,
-                    OrderBy: '__mj_UpdatedAt DESC',
-                    ResultType: 'simple',
-                },
-                {
-                    EntityName: GITHUB_REPOSITORIES_ENTITY_NAME,
-                    OrderBy: 'Owner ASC, Name ASC',
-                    ResultType: 'simple',
-                },
                 {
                     EntityName: COMPANY_INTEGRATION_ENTITY_MAPS_ENTITY_NAME,
                     ExtraFilter: "ExternalObjectName IN ('issues', 'pull_requests', 'repositories', 'commits')",
@@ -264,6 +256,8 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
                 issueSyncTimestamps?: number;
                 prSyncTimestamps?: number;
                 webhookDeliveries?: number;
+                delegatedOAuthCredential?: number;
+                currentUserPeople?: number;
             } = {};
 
             if (hasEntity(COMPANY_INTEGRATIONS_ENTITY_NAME)) {
@@ -319,21 +313,59 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
                 );
             }
 
-            const [batchResults, resolvedPersonId, delegatedOAuthCredId] = await Promise.all([
+            const delegatedCredQuery = this.buildDelegatedOAuthCredentialQuery(currentUser);
+            if (delegatedCredQuery) {
+                optionalIndices.delegatedOAuthCredential = batchQueries.length;
+                batchQueries.push(delegatedCredQuery);
+            }
+
+            const initialPeopleQuery = this.buildCurrentUserPeopleQuery(currentUser, null);
+            if (initialPeopleQuery) {
+                optionalIndices.currentUserPeople = batchQueries.length;
+                batchQueries.push(initialPeopleQuery);
+            }
+
+            const [, batchResults, resolvedPersonId] = await Promise.all([
+                forceRefresh
+                    ? engine.Config(true, currentUser, provider)
+                    : engine.EnsureLoaded(currentUser, provider),
                 rv.RunViews(batchQueries, currentUser),
                 this.resolveCurrentUserPersonId(),
-                this.resolveDelegatedOAuthCredentialId(rv),
             ]);
 
-            const peopleRows = await this.loadCurrentUserPersonRows(rv, currentUser, resolvedPersonId);
-            const identityRows = batchResults[0]?.Success
-                ? ((batchResults[0].Results as GitHubIdentityRecordInput[] | undefined) ?? [])
-                : [];
-            const repoRows = batchResults[1]?.Success
-                ? ((batchResults[1].Results as GitHubRepositoryCardInput[] | undefined) ?? [])
-                : [];
-            const entityMapRows = batchResults[2]?.Success
-                ? ((batchResults[2].Results as CompanyIntegrationEntityMapSummaryInput[] | undefined) ?? [])
+            let peopleRows: PersonIdentityRecordInput[] =
+                optionalIndices.currentUserPeople !== undefined &&
+                batchResults[optionalIndices.currentUserPeople]?.Success
+                    ? ((batchResults[optionalIndices.currentUserPeople].Results as
+                          | PersonIdentityRecordInput[]
+                          | undefined) ?? [])
+                    : [];
+
+            if (
+                resolvedPersonId &&
+                IsValidUUID(resolvedPersonId) &&
+                !peopleRows.some((p) => UUIDsEqual(p.ID, resolvedPersonId))
+            ) {
+                const extraPeople = await this.loadCurrentUserPersonRows(rv, currentUser, resolvedPersonId);
+                for (const row of extraPeople) {
+                    if (!peopleRows.some((p) => UUIDsEqual(p.ID, row.ID))) {
+                        peopleRows = [...peopleRows, row];
+                    }
+                }
+            }
+
+            const delegatedOAuthCredId =
+                optionalIndices.delegatedOAuthCredential !== undefined &&
+                batchResults[optionalIndices.delegatedOAuthCredential]?.Success
+                    ? ((batchResults[optionalIndices.delegatedOAuthCredential].Results as
+                          | DelegatedCredentialRow[]
+                          | undefined)?.[0]?.ID ?? null)
+                    : null;
+
+            const identityRows: readonly GitHubIdentityRecordInput[] = engine.Identities;
+            const repoRows: readonly GitHubRepositoryCardInput[] = engine.Repositories;
+            const entityMapRows = batchResults[0]?.Success
+                ? ((batchResults[0].Results as CompanyIntegrationEntityMapSummaryInput[] | undefined) ?? [])
                 : [];
 
             const companyIntegrationRows =
@@ -530,7 +562,7 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
                 );
             }
 
-            await this.LoadData();
+            await this.LoadData(true);
             this.Banner = {
                 Type: 'success',
                 Message: `Linked GitHub handle @${validation.NormalizedLogin} to ${this.IdentityViewModel.PersonDisplayName ?? 'your profile'}.`,
@@ -579,7 +611,7 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
                 );
             }
 
-            await this.LoadData();
+            await this.LoadData(true);
             this.Banner = {
                 Type: 'success',
                 Message: nextTracked
@@ -628,7 +660,7 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
                 );
             }
 
-            await this.LoadData();
+            await this.LoadData(true);
             this.Banner = {
                 Type: 'success',
                 Message: `Updated ${card.FullName} import rule to '${nextRule}'.`,
@@ -715,11 +747,10 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
         return FormatGitHubSyncSummaryMessage(scopeLabel, summaryJson);
     }
 
-    private async loadCurrentUserPersonRows(
-        rv: RunView,
+    private buildCurrentUserPeopleQuery(
         currentUser: UserInfo | null | undefined,
         resolvedPersonId: string | null,
-    ): Promise<PersonIdentityRecordInput[]> {
+    ): RunViewParams | null {
         const clauses: string[] = [];
         if (resolvedPersonId && IsValidUUID(resolvedPersonId)) {
             clauses.push(`ID = '${resolvedPersonId.trim()}'`);
@@ -738,17 +769,29 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
             clauses.push(`Email = '${EscapeSQLString(email)}'`);
         }
         if (clauses.length === 0) {
-            return [];
+            return null;
         }
         const uniqueClauses = Array.from(new Set(clauses));
+        return {
+            EntityName: PEOPLE_ENTITY_NAME,
+            ExtraFilter: uniqueClauses.join(' OR '),
+            Fields: ['ID', 'FirstName', 'LastName', 'Email', 'LinkedUserID', 'Status'],
+            MaxRows: 5,
+            ResultType: 'simple',
+        };
+    }
+
+    private async loadCurrentUserPersonRows(
+        rv: RunView,
+        currentUser: UserInfo | null | undefined,
+        resolvedPersonId: string | null,
+    ): Promise<PersonIdentityRecordInput[]> {
+        const query = this.buildCurrentUserPeopleQuery(currentUser, resolvedPersonId);
+        if (!query) {
+            return [];
+        }
         const res = await rv.RunView<PersonIdentityRecordInput>(
-            {
-                EntityName: PEOPLE_ENTITY_NAME,
-                ExtraFilter: uniqueClauses.join(' OR '),
-                Fields: ['ID', 'FirstName', 'LastName', 'Email', 'LinkedUserID', 'Status'],
-                MaxRows: 5,
-                ResultType: 'simple',
-            },
+            query,
             currentUser ?? undefined,
         );
         return res.Success && Array.isArray(res.Results) ? res.Results : [];
@@ -783,9 +826,10 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
         }
     }
 
-    private async resolveDelegatedOAuthCredentialId(rv: RunView): Promise<string | null> {
+    private buildDelegatedOAuthCredentialQuery(
+        user: UserInfo | null | undefined,
+    ): RunViewParams | null {
         const provider = this.ProviderToUse;
-        const user = provider?.CurrentUser;
         const entities = Array.isArray(provider?.Entities) ? provider.Entities : [];
         const credEntity = entities.find((e) => e.Name === 'MJ: Credentials');
         if (!credEntity || !user?.ID || !IsValidUUID(user.ID)) {
@@ -795,24 +839,19 @@ export class GitHubTasksAdminResource extends BaseResourceComponent implements O
         if (!hasOwnerUserField) {
             return null;
         }
-        try {
-            const res = await rv.RunView<DelegatedCredentialRow>(
-                {
-                    EntityName: 'MJ: Credentials',
-                    ExtraFilter: `OwnerUserID = '${user.ID}' AND IsActive = 1 AND Name LIKE '%GitHub%'`,
-                    Fields: ['ID', 'Name', 'IsActive'],
-                    MaxRows: 1,
-                    ResultType: 'simple',
-                },
-                user,
-            );
-            if (res.Success && res.Results && res.Results.length > 0) {
-                return res.Results[0]?.ID ?? null;
-            }
-        } catch {
-            // Optional Vault lookup — fall back cleanly when session cannot read MJ: Credentials
+        if (
+            typeof credEntity.GetUserPermisions === 'function' &&
+            credEntity.GetUserPermisions(user)?.CanRead === false
+        ) {
+            return null;
         }
-        return null;
+        return {
+            EntityName: 'MJ: Credentials',
+            ExtraFilter: `OwnerUserID = '${user.ID}' AND IsActive = 1 AND Name LIKE '%GitHub%'`,
+            Fields: ['ID', 'Name', 'IsActive'],
+            MaxRows: 1,
+            ResultType: 'simple',
+        };
     }
 
     private aggregateRepositoryLastSynced(

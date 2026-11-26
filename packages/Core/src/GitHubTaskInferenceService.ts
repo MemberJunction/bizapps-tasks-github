@@ -360,18 +360,23 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
         }
 
         const ids = await this.resolveCommentSuggestionMetadataIds(rv, contextUser);
+        const pendingByField = await this.loadPendingSuggestionsForFields(
+            tasksEntityInfo.ID,
+            task.ID,
+            eligibleCandidates.map((c) => c.field),
+            contextUser,
+            rv,
+        );
         const { supersededCount, createdSuggestionIds } = await RunWithEntityTransaction(md, async () => {
             let localSupersededCount = 0;
             const localCreatedIds: string[] = [];
 
             for (const candidate of eligibleCandidates) {
-                localSupersededCount += await this.SupersedePendingSuggestionsForField(
-                    tasksEntityInfo.ID,
-                    task.ID,
-                    candidate.field,
+                const preloadedPending = pendingByField.get(candidate.field) ?? [];
+                localSupersededCount += await this.supersedePendingSuggestionRows(
+                    preloadedPending,
                     contextUser,
                     md,
-                    rv,
                 );
 
                 const suggestion = await md.GetEntityObject<IFieldSuggestionEntityRecord>(
@@ -464,6 +469,53 @@ export class GitHubTaskInferenceService extends BaseSingleton<GitHubTaskInferenc
         }
 
         const pendingRows = pendingResult.Results ?? [];
+        return this.supersedePendingSuggestionRows(pendingRows, contextUser, md);
+    }
+
+    private async loadPendingSuggestionsForFields(
+        linkedEntityId: string,
+        linkedRecordId: string,
+        fields: readonly string[],
+        contextUser: UserInfo,
+        rv: RunView,
+    ): Promise<Map<string, IFieldSuggestionEntityRecord[]>> {
+        const result = new Map<string, IFieldSuggestionEntityRecord[]>();
+        const uniqueFields = Array.from(new Set(fields));
+        if (uniqueFields.length === 0) {
+            return result;
+        }
+        const cleanEntityId = AssertValidUUID(linkedEntityId, 'linkedEntityId');
+        const cleanRecordId = AssertValidUUID(linkedRecordId, 'linkedRecordId');
+        const batchParams = uniqueFields.map((fieldName) => ({
+            EntityName: FIELD_SUGGESTIONS_ENTITY_NAME,
+            ExtraFilter:
+                `LinkedEntityID = '${cleanEntityId}' ` +
+                `AND LinkedRecordID = '${cleanRecordId}' ` +
+                `AND AnchorType = 'Field' ` +
+                `AND AnchorKey = '${EscapeSQLString(fieldName)}' ` +
+                `AND Outcome IS NULL AND IsResolved = 0`,
+            ResultType: 'entity_object' as const,
+        }));
+
+        const batchResults = await rv.RunViews(batchParams, contextUser);
+        for (let i = 0; i < uniqueFields.length; i++) {
+            const viewRes = batchResults[i];
+            if (!viewRes?.Success) {
+                throw new Error(`Failed querying pending Field Suggestions: ${viewRes?.ErrorMessage ?? 'unknown error'}`);
+            }
+            result.set(
+                uniqueFields[i],
+                (viewRes.Results as IFieldSuggestionEntityRecord[] | undefined) ?? [],
+            );
+        }
+        return result;
+    }
+
+    private async supersedePendingSuggestionRows(
+        pendingRows: readonly IFieldSuggestionEntityRecord[],
+        contextUser: UserInfo,
+        md: IMetadataProvider,
+    ): Promise<number> {
         if (pendingRows.length === 0) {
             return 0;
         }

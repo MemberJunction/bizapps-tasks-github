@@ -11,8 +11,9 @@ import type {
     RunViewResult,
     UserInfo,
 } from '@memberjunction/core';
-import type {
-    mjBizAppsTasksGitHubGitHubRepositoryEntity,
+import {
+    GitHubTasksEngineBase,
+    type mjBizAppsTasksGitHubGitHubRepositoryEntity,
 } from '@mj-biz-apps/tasks-github-entities';
 import type { mjBizAppsTasksTaskAssignmentEntity } from '@mj-biz-apps/tasks-entities';
 import {
@@ -407,9 +408,12 @@ function buildTestHarness() {
         ErrorMessage: '',
     });
 
+    const allowAllPerms = () => ({ CanRead: true, CanCreate: true, CanUpdate: true, CanDelete: true });
     const entitiesList = [
-        { ID: TASKS_ENTITY_ID, Name: TASKS_ENTITY_NAME } as EntityInfo,
-        { ID: PEOPLE_ENTITY_ID, Name: PEOPLE_ENTITY } as EntityInfo,
+        { ID: TASKS_ENTITY_ID, Name: TASKS_ENTITY_NAME, PrimaryKeys: [{ Name: 'ID', IsUniqueIdentifier: true }], GetUserPermisions: allowAllPerms } as EntityInfo,
+        { ID: PEOPLE_ENTITY_ID, Name: PEOPLE_ENTITY, PrimaryKeys: [{ Name: 'ID', IsUniqueIdentifier: true }], GetUserPermisions: allowAllPerms } as EntityInfo,
+        { ID: '11111111-1111-4111-8111-000000000003', Name: GITHUB_REPOSITORIES_ENTITY, PrimaryKeys: [{ Name: 'ID', IsUniqueIdentifier: true }], GetUserPermisions: allowAllPerms } as EntityInfo,
+        { ID: '11111111-1111-4111-8111-000000000004', Name: GITHUB_IDENTITIES_ENTITY, PrimaryKeys: [{ Name: 'ID', IsUniqueIdentifier: true }], GetUserPermisions: allowAllPerms } as EntityInfo,
     ];
     const beginEntityTransaction = async (): Promise<EntityTransactionScope> => {
         txStats.began += 1;
@@ -472,6 +476,7 @@ describe('GitHubTaskSyncService, GitHubTaskInferenceService & GitHubWebhookServi
     beforeEach(() => {
         delete process.env.GITHUB_TOKEN;
         delete process.env.GH_TOKEN;
+        GitHubTasksEngineBase.Instance.ResetCaches();
         GitHubWebhookService.Instance.ClearProcessedDeliveries();
         GitHubTaskInferenceService.Instance.SetExtractor({
             ExtractPlanningSuggestions: async () => ({

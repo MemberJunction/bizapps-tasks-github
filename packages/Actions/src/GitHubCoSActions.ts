@@ -1,7 +1,7 @@
 import { BaseAction } from '@memberjunction/actions';
 import { ActionParam, ActionResultSimple, RunActionParams } from '@memberjunction/actions-base';
 import { TypedActionPolicyGuard } from '@memberjunction/ai-core-plus';
-import { IMetadataProvider, LogError, Metadata, RunView, UserInfo } from '@memberjunction/core';
+import { IMetadataProvider, LogError, Metadata, RunView, type RunViewParams, UserInfo } from '@memberjunction/core';
 import {
     EscapeSQLString,
     IndexByUUID,
@@ -15,11 +15,10 @@ import type {
     mjBizAppsTasksTaskEntity,
     mjBizAppsTasksTaskRoleEntity,
 } from '@mj-biz-apps/tasks-entities';
-import type {
-    mjBizAppsTasksGitHubGitHubIdentityEntity,
-    mjBizAppsTasksGitHubGitHubIssueTaskEntity,
-    mjBizAppsTasksGitHubGitHubPullRequestTaskEntity,
-    mjBizAppsTasksGitHubGitHubRepositoryEntity,
+import {
+    GitHubTasksEngineBase,
+    type mjBizAppsTasksGitHubGitHubIssueTaskEntity,
+    type mjBizAppsTasksGitHubGitHubPullRequestTaskEntity,
 } from '@mj-biz-apps/tasks-github-entities';
 import {
     AssertValidUUID,
@@ -408,6 +407,12 @@ async function resolveCallerPerson(
     const peopleEntityId =
         md && typeof md.EntityByName === 'function' ? md.EntityByName(PEOPLE_ENTITY)?.ID : undefined;
 
+    const personFields = ['ID', 'FirstName', 'LastName', 'DisplayName', 'Email', 'LinkedUserID', 'Status'];
+    const batchQueries: RunViewParams[] = [];
+    let linkedIdx = -1;
+    let byUserIdx = -1;
+    let byEmailIdx = -1;
+
     if (
         contextUser.LinkedEntityID &&
         contextUser.LinkedEntityRecordID &&
@@ -415,52 +420,66 @@ async function resolveCallerPerson(
         UUIDsEqual(contextUser.LinkedEntityID, peopleEntityId) &&
         IsValidUUID(contextUser.LinkedEntityRecordID)
     ) {
-        const linkedRes = await rv.RunView<PersonLookupRow>(
-            {
-                EntityName: PEOPLE_ENTITY,
-                ExtraFilter: `ID = '${contextUser.LinkedEntityRecordID.trim()}'`,
-                Fields: ['ID', 'FirstName', 'LastName', 'DisplayName', 'Email', 'LinkedUserID', 'Status'],
-                MaxRows: 1,
-                ResultType: 'simple',
-            },
-            contextUser,
-        );
-        if (linkedRes.Success && (linkedRes.Results?.length ?? 0) === 1) {
-            return linkedRes.Results[0];
-        }
+        linkedIdx = batchQueries.length;
+        batchQueries.push({
+            EntityName: PEOPLE_ENTITY,
+            ExtraFilter: `ID = '${contextUser.LinkedEntityRecordID.trim()}'`,
+            Fields: personFields,
+            MaxRows: 1,
+            ResultType: 'simple',
+        });
     }
 
     if (IsValidUUID(contextUser.ID)) {
         const safeUserId = contextUser.ID.trim();
-        const byUserRes = await rv.RunView<PersonLookupRow>(
-            {
-                EntityName: PEOPLE_ENTITY,
-                ExtraFilter: `LinkedUserID = '${safeUserId}' AND Status = 'Active'`,
-                Fields: ['ID', 'FirstName', 'LastName', 'DisplayName', 'Email', 'LinkedUserID', 'Status'],
-                MaxRows: cosLimits.PersonUserLookupMaxRows,
-                ResultType: 'simple',
-            },
-            contextUser,
-        );
-        if (byUserRes.Success && (byUserRes.Results?.length ?? 0) === 1) {
-            return byUserRes.Results[0];
-        }
+        byUserIdx = batchQueries.length;
+        batchQueries.push({
+            EntityName: PEOPLE_ENTITY,
+            ExtraFilter: `LinkedUserID = '${safeUserId}' AND Status = 'Active'`,
+            Fields: personFields,
+            MaxRows: cosLimits.PersonUserLookupMaxRows,
+            ResultType: 'simple',
+        });
     }
 
     if (contextUser.Email && contextUser.Email.trim().length > 0) {
         const safeEmail = EscapeSQLString(contextUser.Email.trim());
-        const byEmailRes = await rv.RunView<PersonLookupRow>(
-            {
-                EntityName: PEOPLE_ENTITY,
-                ExtraFilter: `LOWER(Email) = LOWER('${safeEmail}') AND Status = 'Active'`,
-                Fields: ['ID', 'FirstName', 'LastName', 'DisplayName', 'Email', 'LinkedUserID', 'Status'],
-                MaxRows: cosLimits.PersonEmailLookupMaxRows,
-                ResultType: 'simple',
-            },
-            contextUser,
-        );
-        if (byEmailRes.Success && (byEmailRes.Results?.length ?? 0) > 0) {
-            const candidates = byEmailRes.Results;
+        byEmailIdx = batchQueries.length;
+        batchQueries.push({
+            EntityName: PEOPLE_ENTITY,
+            ExtraFilter: `LOWER(Email) = LOWER('${safeEmail}') AND Status = 'Active'`,
+            Fields: personFields,
+            MaxRows: cosLimits.PersonEmailLookupMaxRows,
+            ResultType: 'simple',
+        });
+    }
+
+    if (batchQueries.length === 0) {
+        return null;
+    }
+
+    const results = await rv.RunViews(batchQueries, contextUser);
+
+    if (linkedIdx >= 0) {
+        const linkedRes = results[linkedIdx];
+        const rows = (linkedRes?.Results as PersonLookupRow[] | undefined) ?? [];
+        if (linkedRes?.Success && rows.length === 1) {
+            return rows[0];
+        }
+    }
+
+    if (byUserIdx >= 0) {
+        const byUserRes = results[byUserIdx];
+        const rows = (byUserRes?.Results as PersonLookupRow[] | undefined) ?? [];
+        if (byUserRes?.Success && rows.length === 1) {
+            return rows[0];
+        }
+    }
+
+    if (byEmailIdx >= 0) {
+        const byEmailRes = results[byEmailIdx];
+        const candidates = (byEmailRes?.Results as PersonLookupRow[] | undefined) ?? [];
+        if (byEmailRes?.Success && candidates.length > 0) {
             const preferred =
                 candidates.find((c) => c.LinkedUserID && UUIDsEqual(c.LinkedUserID, contextUser.ID)) ??
                 candidates.find((c) => !c.LinkedUserID) ??
@@ -480,31 +499,24 @@ async function resolveCallerGitHubIdentity(
     provider: IMetadataProvider | undefined,
     cosLimits: GitHubCoSLimitsConfig,
 ): Promise<CallerGitHubIdentity | null> {
-    const person = await resolveCallerPerson(contextUser, rv, provider, cosLimits);
+    const engine = GitHubTasksEngineBase.Instance;
+    const [person] = await Promise.all([
+        resolveCallerPerson(contextUser, rv, provider, cosLimits),
+        engine.EnsureLoaded(contextUser, provider),
+    ]);
     if (!person || !IsValidUUID(person.ID)) {
         return null;
     }
 
-    const safePersonId = AssertValidUUID(person.ID, 'Person.ID');
-    const identitiesRes = await rv.RunView<mjBizAppsTasksGitHubGitHubIdentityEntity>(
-        {
-            EntityName: GITHUB_IDENTITIES_ENTITY,
-            ExtraFilter: `PersonID = '${safePersonId}' AND IsActive = 1`,
-            Fields: ['ID', 'GitHubLogin', 'PersonID', 'IsActive'],
-            ResultType: 'simple',
-        },
-        contextUser,
-    );
-
-    if (!identitiesRes.Success) {
-        throw new Error(
-            `Failed querying '${GITHUB_IDENTITIES_ENTITY}': ${identitiesRes.ErrorMessage ?? 'unknown error'}`,
-        );
+    AssertValidUUID(person.ID, 'Person.ID');
+    if (engine.CanReadIdentities(contextUser, provider) && !engine.IsPropertyLoaded('_identities')) {
+        throw new Error(`Failed querying '${GITHUB_IDENTITIES_ENTITY}': engine load failed`);
     }
 
+    const matchingIdentities = engine.IdentitiesByPersonId(person.ID, true);
     const logins: string[] = [];
     const loginsLower = new Set<string>();
-    for (const row of identitiesRes.Results ?? []) {
+    for (const row of matchingIdentities) {
         if (row.IsActive === false) {
             continue;
         }
@@ -538,36 +550,37 @@ async function loadCallerAssignmentContext(
     const peopleEntityId =
         md && typeof md.EntityByName === 'function' ? md.EntityByName(PEOPLE_ENTITY)?.ID : undefined;
 
-    const [rolesRes, assignmentsRes, reposRes] = await rv.RunViews(
-        [
-            {
-                EntityName: TASK_ROLES_ENTITY,
-                ExtraFilter: `Name IN ('Primary', 'Reviewer')`,
-                Fields: ['ID', 'Name'],
-                ResultType: 'simple',
-            },
-            {
-                EntityName: TASK_ASSIGNMENTS_ENTITY,
-                ExtraFilter: `AssigneeRecordID = '${safePersonId}'`,
-                Fields: ['ID', 'TaskID', 'AssigneeEntityID', 'AssigneeRecordID', 'RoleID', 'Role', 'Status', 'AssignedAt'],
-                ResultType: 'simple',
-            },
-            {
-                EntityName: GITHUB_REPOSITORIES_ENTITY,
-                Fields: ['ID', 'Owner', 'Name'],
-                ResultType: 'simple',
-            },
-        ],
-        contextUser,
-    );
+    const engine = GitHubTasksEngineBase.Instance;
+    const [[rolesRes, assignmentsRes]] = await Promise.all([
+        rv.RunViews(
+            [
+                {
+                    EntityName: TASK_ROLES_ENTITY,
+                    ExtraFilter: `Name IN ('Primary', 'Reviewer')`,
+                    Fields: ['ID', 'Name'],
+                    ResultType: 'simple',
+                },
+                {
+                    EntityName: TASK_ASSIGNMENTS_ENTITY,
+                    ExtraFilter: `AssigneeRecordID = '${safePersonId}'`,
+                    Fields: ['ID', 'TaskID', 'AssigneeEntityID', 'AssigneeRecordID', 'RoleID', 'Role', 'Status', 'AssignedAt'],
+                    ResultType: 'simple',
+                },
+            ],
+            contextUser,
+        ),
+        engine.EnsureLoaded(contextUser, provider),
+    ]);
 
-    if (!rolesRes?.Success || !assignmentsRes?.Success || !reposRes?.Success) {
+    if (!rolesRes?.Success || !assignmentsRes?.Success) {
         const errMsg =
             rolesRes?.ErrorMessage ||
             assignmentsRes?.ErrorMessage ||
-            reposRes?.ErrorMessage ||
             'Failed loading GitHub task reference context';
         throw new Error(errMsg);
+    }
+    if (engine.CanReadRepositories(contextUser, provider) && !engine.IsPropertyLoaded('_repositories')) {
+        throw new Error(`Failed loading '${GITHUB_REPOSITORIES_ENTITY}' from GitHubTasksEngineBase`);
     }
 
     const roles = (rolesRes.Results as mjBizAppsTasksTaskRoleEntity[] | undefined) ?? [];
@@ -611,7 +624,11 @@ async function loadCallerAssignmentContext(
         }
     }
 
-    const repos = (reposRes.Results as RepositoryLookupRow[] | undefined) ?? [];
+    const repos: RepositoryLookupRow[] = engine.Repositories.map((r) => ({
+        ID: r.ID,
+        Owner: r.Owner,
+        Name: r.Name,
+    }));
     const reposById = IndexByUUID(repos, (r) => r.ID);
 
     return {

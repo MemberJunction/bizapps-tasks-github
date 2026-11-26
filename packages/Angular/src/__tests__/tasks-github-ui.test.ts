@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Injector, runInInjectionContext } from '@angular/core';
 import type { IMetadataProvider, IRunViewProvider, RunViewParams, RunViewResult, UserInfo } from '@memberjunction/core';
 import { NavigationService } from '@memberjunction/ng-shared';
+import { GitHubTasksEngineBase } from '@mj-biz-apps/tasks-github-entities';
 import {
     AggregateGitHubSyncSummaryJson,
     BuildGitHubIssueBadgeViewModel,
@@ -14,6 +15,8 @@ import {
     ExtractRepoFullNameFromHtmlUrl,
     FilterTrackedRepositoryCards,
     FormatGitHubSyncSummaryMessage,
+    GITHUB_IDENTITIES_ENTITY_NAME,
+    GITHUB_REPOSITORIES_ENTITY_NAME,
     GitHubTasksAdminResource,
     LoadBizAppsTasksGitHubClient,
     PEOPLE_ENTITY_NAME,
@@ -403,7 +406,8 @@ describe('@mj-biz-apps/tasks-github-ng UI helpers & view-model builders', () => 
             );
         });
 
-        it('issues a scoped People lookup (never an unbounded full-table scan) during GitHubTasksAdminResource.LoadData', async () => {
+        it('batches scoped People lookup via RunViews and reuses GitHubTasksEngineBase cache on reload during GitHubTasksAdminResource.LoadData', async () => {
+            GitHubTasksEngineBase.Instance.ResetCaches();
             const seenQueries: RunViewParams[] = [];
             const currentUser = {
                 ID: '99999999-9999-4999-8999-000000000001',
@@ -412,48 +416,61 @@ describe('@mj-biz-apps/tasks-github-ng UI helpers & view-model builders', () => 
                 FirstLast: 'Ada Lovelace',
             } as UserInfo;
 
-            const fakeRunViewProvider: Partial<IRunViewProvider> = {
-                RunView: vi.fn(async (params: RunViewParams): Promise<RunViewResult> => {
-                    seenQueries.push(params);
-                    if (params.EntityName === PEOPLE_ENTITY_NAME) {
-                        return {
-                            Success: true,
-                            Results: [
-                                {
-                                    ID: '11111111-1111-4111-8111-111111111111',
-                                    FirstName: 'Ada',
-                                    LastName: 'Lovelace',
-                                    Email: 'ada@example.com',
-                                    LinkedUserID: currentUser.ID,
-                                    Status: 'Active',
-                                },
-                            ],
-                            RowCount: 1,
-                            TotalRowCount: 1,
-                            ExecutionTime: 1,
-                            ErrorMessage: '',
-                        };
-                    }
+            const resolveSingle = async (params: RunViewParams): Promise<RunViewResult> => {
+                seenQueries.push(params);
+                if (params.EntityName === PEOPLE_ENTITY_NAME) {
                     return {
                         Success: true,
-                        Results: [],
-                        RowCount: 0,
-                        TotalRowCount: 0,
+                        Results: [
+                            {
+                                ID: '11111111-1111-4111-8111-111111111111',
+                                FirstName: 'Ada',
+                                LastName: 'Lovelace',
+                                Email: 'ada@example.com',
+                                LinkedUserID: currentUser.ID,
+                                Status: 'Active',
+                            },
+                        ],
+                        RowCount: 1,
+                        TotalRowCount: 1,
                         ExecutionTime: 1,
                         ErrorMessage: '',
                     };
-                }),
-                RunViews: vi.fn(async (views: RunViewParams[]): Promise<RunViewResult[]> => {
-                    seenQueries.push(...views);
-                    return views.map(() => ({
+                }
+                if (params.EntityName === GITHUB_REPOSITORIES_ENTITY_NAME) {
+                    return {
                         Success: true,
-                        Results: [],
-                        RowCount: 0,
-                        TotalRowCount: 0,
+                        Results: [
+                            {
+                                ID: '20000000-0000-4000-8000-000000000001',
+                                Owner: 'MemberJunction',
+                                Name: 'bizapps-tasks-github',
+                                DefaultBranch: 'next',
+                                IsTracked: true,
+                                ImportRule: 'AssignedOnly',
+                            },
+                        ],
+                        RowCount: 1,
+                        TotalRowCount: 1,
                         ExecutionTime: 1,
                         ErrorMessage: '',
-                    }));
-                }),
+                    };
+                }
+                return {
+                    Success: true,
+                    Results: [],
+                    RowCount: 0,
+                    TotalRowCount: 0,
+                    ExecutionTime: 1,
+                    ErrorMessage: '',
+                };
+            };
+
+            const fakeRunViewProvider: Partial<IRunViewProvider> = {
+                RunView: vi.fn(resolveSingle),
+                RunViews: vi.fn(async (views: RunViewParams[]): Promise<RunViewResult[]> =>
+                    Promise.all(views.map((v) => resolveSingle(v))),
+                ),
             };
 
             const fakeProvider: Partial<IMetadataProvider & IRunViewProvider> = {
@@ -493,6 +510,16 @@ describe('@mj-biz-apps/tasks-github-ng UI helpers & view-model builders', () => 
             }
             expect(resource.IdentityViewModel.PersonID).toBe('11111111-1111-4111-8111-111111111111');
             expect(resource.IdentityViewModel.LinkStatus).toBe('Unlinked');
+            expect(resource.RepositoryCards).toHaveLength(1);
+
+            // Second LoadData() reuses warm GitHubTasksEngineBase cache (zero repeat repo/identity queries!)
+            seenQueries.length = 0;
+            await resource.LoadData();
+            expect(seenQueries.filter((q) => q.EntityName === GITHUB_REPOSITORIES_ENTITY_NAME)).toHaveLength(0);
+            expect(seenQueries.filter((q) => q.EntityName === GITHUB_IDENTITIES_ENTITY_NAME)).toHaveLength(0);
+            expect(resource.RepositoryCards).toHaveLength(1);
+
+            GitHubTasksEngineBase.Instance.ResetCaches();
         });
     });
 });

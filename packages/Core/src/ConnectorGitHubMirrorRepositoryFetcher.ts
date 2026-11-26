@@ -416,27 +416,30 @@ export class ConnectorGitHubMirrorRepositoryFetcher implements IGitHubRepository
         const expectedFullNameLower = expectedFullName.toLowerCase();
         const normalized: NormalizedGitHubSyncItem[] = [];
 
-        for (const mapping of mappings) {
+        const batchRequests = mappings.map((mapping) => {
             const repoFullNameColumn = resolveDestinationFieldName('repository_full_name', mapping);
             const extraFilter = repoFullNameColumn
                 ? `[${repoFullNameColumn}] = '${EscapeSQLString(expectedFullName)}'`
                 : '';
+            return {
+                EntityName: mapping.entityName,
+                ExtraFilter: extraFilter,
+                ResultType: 'simple' as const,
+            };
+        });
 
-            const rowsRes = await rv.RunView<MirrorSimpleRow>(
-                {
-                    EntityName: mapping.entityName,
-                    ExtraFilter: extraFilter,
-                    ResultType: 'simple',
-                },
-                contextUser,
-            );
-            if (!rowsRes.Success) {
+        const batchResults = await rv.RunViews(batchRequests, contextUser);
+
+        for (let idx = 0; idx < mappings.length; idx++) {
+            const mapping = mappings[idx];
+            const rowsRes = batchResults[idx];
+            if (!rowsRes?.Success) {
                 throw new Error(
-                    `Failed reading mirrored GitHub '${mapping.externalObjectName}' from entity '${mapping.entityName}': ${rowsRes.ErrorMessage}`,
+                    `Failed reading mirrored GitHub '${mapping.externalObjectName}' from entity '${mapping.entityName}': ${rowsRes?.ErrorMessage ?? 'unknown error'}`,
                 );
             }
 
-            const rows = rowsRes.Results ?? [];
+            const rows = (rowsRes.Results as MirrorSimpleRow[] | undefined) ?? [];
             if (mapping.externalObjectName === 'issues') {
                 for (const row of rows) {
                     if (readBoolean(row, 'is_pull_request', mapping)) {

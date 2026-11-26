@@ -16,11 +16,11 @@ import type {
     mjBizAppsTasksTaskTypeEntity,
     mjBizAppsTasksTaskTypeStatusEntity,
 } from '@mj-biz-apps/tasks-entities';
-import type {
-    mjBizAppsTasksGitHubGitHubIdentityEntity,
-    mjBizAppsTasksGitHubGitHubIssueTaskEntity,
-    mjBizAppsTasksGitHubGitHubPullRequestTaskEntity,
-    mjBizAppsTasksGitHubGitHubRepositoryEntity,
+import {
+    GitHubTasksEngineBase,
+    type mjBizAppsTasksGitHubGitHubIssueTaskEntity,
+    type mjBizAppsTasksGitHubGitHubPullRequestTaskEntity,
+    type mjBizAppsTasksGitHubGitHubRepositoryEntity,
 } from '@mj-biz-apps/tasks-github-entities';
 import {
     ConnectorGitHubMirrorRepositoryFetcher,
@@ -480,25 +480,24 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
     public async SyncRepositories(options: SyncRepositoryOptions): Promise<RepositorySyncSummary[]> {
         const md = options.provider ?? Metadata.Provider;
         const rv = options.provider ? RunView.FromMetadataProvider(options.provider) : new RunView();
+        const engine = GitHubTasksEngineBase.Instance;
 
-        const extraFilter = options.repositoryId
-            ? `ID = '${AssertValidUUID(options.repositoryId, 'repositoryId')}'`
-            : `IsTracked = 1`;
+        const cleanRepositoryId = options.repositoryId
+            ? AssertValidUUID(options.repositoryId, 'repositoryId')
+            : null;
 
-        const repoRes = await rv.RunView<mjBizAppsTasksGitHubGitHubRepositoryEntity>(
-            {
-                EntityName: GITHUB_REPOSITORIES_ENTITY,
-                ExtraFilter: extraFilter,
-                ResultType: 'entity_object',
-            },
-            options.contextUser,
-        );
-
-        if (!repoRes.Success) {
-            throw new Error(`Failed loading GitHub repositories: ${repoRes.ErrorMessage}`);
+        await engine.EnsureLoaded(options.contextUser, options.provider);
+        if (engine.CanReadRepositories(options.contextUser, options.provider) && !engine.IsPropertyLoaded('_repositories')) {
+            throw new Error('Failed loading GitHub repositories from GitHubTasksEngineBase');
         }
 
-        const repos = repoRes.Results ?? [];
+        const repos: readonly mjBizAppsTasksGitHubGitHubRepositoryEntity[] = cleanRepositoryId
+            ? (() => {
+                  const found = engine.RepositoryById(cleanRepositoryId);
+                  return found ? [found] : [];
+              })()
+            : engine.ActiveRepositories;
+
         if (options.repositoryId && repos.length === 0) {
             throw new Error(`GitHubRepository '${options.repositoryId}' not found`);
         }
@@ -1751,36 +1750,39 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
             throw new Error(`Entity '${PEOPLE_ENTITY}' not found in metadata`);
         }
 
-        const [typesRes, statusesRes, rolesRes, identitiesRes] = await rv.RunViews([
-            {
-                EntityName: TASK_TYPES_ENTITY,
-                ExtraFilter: `Code IN ('GITHUB_ISSUE', 'GITHUB_PR')`,
-                ResultType: 'simple',
-            },
-            {
-                EntityName: TASK_TYPE_STATUS_ENTITY,
-                ExtraFilter: `IsActive = 1`,
-                ResultType: 'simple',
-            },
-            {
-                EntityName: TASK_ROLES_ENTITY,
-                ExtraFilter: `Name IN ('Primary', 'Reviewer')`,
-                ResultType: 'simple',
-            },
-            {
-                EntityName: GITHUB_IDENTITIES_ENTITY,
-                ExtraFilter: `IsActive = 1`,
-                ResultType: 'simple',
-            },
-        ], contextUser);
+        const engine = GitHubTasksEngineBase.Instance;
+        const [[typesRes, statusesRes, rolesRes]] = await Promise.all([
+            rv.RunViews([
+                {
+                    EntityName: TASK_TYPES_ENTITY,
+                    ExtraFilter: `Code IN ('GITHUB_ISSUE', 'GITHUB_PR')`,
+                    ResultType: 'simple',
+                },
+                {
+                    EntityName: TASK_TYPE_STATUS_ENTITY,
+                    ExtraFilter: `IsActive = 1`,
+                    ResultType: 'simple',
+                },
+                {
+                    EntityName: TASK_ROLES_ENTITY,
+                    ExtraFilter: `Name IN ('Primary', 'Reviewer')`,
+                    ResultType: 'simple',
+                },
+            ], contextUser),
+            engine.EnsureLoaded(contextUser, md),
+        ]);
 
-        if (!typesRes?.Success || !statusesRes?.Success || !rolesRes?.Success || !identitiesRes?.Success) {
+        if (!typesRes?.Success || !statusesRes?.Success || !rolesRes?.Success) {
             const errMsg =
                 typesRes?.ErrorMessage
                 || statusesRes?.ErrorMessage
                 || rolesRes?.ErrorMessage
-                || identitiesRes?.ErrorMessage
                 || 'Failed loading sync reference context';
+            LogError(errMsg);
+            throw new Error(errMsg);
+        }
+        if (engine.CanReadIdentities(contextUser, md) && !engine.IsPropertyLoaded('_identities')) {
+            const errMsg = `Failed loading '${GITHUB_IDENTITIES_ENTITY}' from GitHubTasksEngineBase`;
             LogError(errMsg);
             throw new Error(errMsg);
         }
@@ -1810,7 +1812,7 @@ export class GitHubTaskSyncService extends BaseSingleton<GitHubTaskSyncService> 
             throw new Error(`Required Primary / Reviewer Task Roles not found in MJ_BizApps_Tasks: Task Roles`);
         }
 
-        const identities = (identitiesRes?.Results as mjBizAppsTasksGitHubGitHubIdentityEntity[] | undefined) ?? [];
+        const identities = engine.ActiveIdentities;
         const personIdByUserId = new Map<string, { login: string; personId: string }>();
         const identityByLowerLogin = new Map<string, { personId: string; userId: string | null }>();
         for (const idRow of identities) {

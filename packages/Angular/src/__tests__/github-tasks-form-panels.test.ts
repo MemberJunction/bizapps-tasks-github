@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { IRunViewProvider, RunViewParams, RunViewResult } from '@memberjunction/core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { IMetadataProvider, IRunViewProvider, RunViewParams, RunViewResult } from '@memberjunction/core';
 import { MJGlobal } from '@memberjunction/global';
 import { BaseFormComponent, BaseFormPanel, FormPanelRegistrationMetadata } from '@memberjunction/ng-base-forms';
+import { GitHubTasksEngineBase } from '@mj-biz-apps/tasks-github-entities';
 
 // Import public-api to trigger all registrations and exports
 import {
@@ -18,6 +19,14 @@ import {
 } from '../public-api.js';
 
 describe('@mj-biz-apps/tasks-github-ng Form Registrations & Contributions', () => {
+    beforeEach(() => {
+        GitHubTasksEngineBase.Instance.ResetCaches();
+    });
+
+    afterEach(() => {
+        GitHubTasksEngineBase.Instance.ResetCaches();
+    });
+
     it('registers all 4 generated forms in ClassFactory under BaseFormComponent', () => {
         const repoForm = MJGlobal.Instance.ClassFactory.GetRegistration(
             BaseFormComponent,
@@ -213,59 +222,117 @@ describe('@mj-biz-apps/tasks-github-ng Form Registrations & Contributions', () =
         expect(panel.HasAnyLinkedItems).toBe(true);
     });
 
-    it('TaskGitHubLinksPanel avoids redundant double-fetch for self PR/Issue subtype and validates UUIDs', async () => {
+    it('TaskGitHubLinksPanel batches Phase 1 & Phase 2 via RunViews, avoids redundant double-fetch for self PR/Issue subtype, resolves Repositories from GitHubTasksEngineBase, and validates UUIDs', async () => {
         const taskId = '11111111-1111-4111-8111-111111111111';
+        const linkedIssueId = '33333333-3333-4333-8333-333333333333';
+        const linkedRepoId = '44444444-4444-4444-8444-444444444444';
         const queries: RunViewParams[] = [];
+        const singleRunViewCalls: RunViewParams[] = [];
+        const batchRunViewsCalls: RunViewParams[][] = [];
 
-        const mockProvider: Partial<IRunViewProvider> = {
-            RunView: vi.fn(async (params: RunViewParams): Promise<RunViewResult> => {
-                queries.push(params);
-                if (params.EntityName === 'MJ_BizApps_Tasks: Task Links') {
-                    return {
-                        Success: true,
-                        Results: [
-                            // Invalid UUID must be ignored before interpolation
-                            { Entity: 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks', RecordID: "' OR 1=1 --" },
-                            // Self PR link already retrieved in first pass must not trigger a second PR query
-                            { Entity: 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks', RecordID: taskId },
-                        ],
-                        RowCount: 2,
-                        TotalRowCount: 2,
-                        ExecutionTime: 1,
-                        ErrorMessage: '',
-                    };
-                }
-                if (params.EntityName === 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks') {
-                    return {
-                        Success: true,
-                        Results: [
-                            {
-                                ID: taskId,
-                                Number: 99,
-                                Name: 'Self PR Task',
-                                State: 'open',
-                                IsDraft: false,
-                                HeadBranch: 'feat/tx',
-                                BaseBranch: 'next',
-                                Additions: 42,
-                                Deletions: 7,
-                                HtmlURL: 'https://github.com/MemberJunction/bizapps-tasks-github/pull/99',
-                            },
-                        ],
-                        RowCount: 1,
-                        TotalRowCount: 1,
-                        ExecutionTime: 1,
-                        ErrorMessage: '',
-                    };
-                }
+        const resolveView = async (params: RunViewParams): Promise<RunViewResult> => {
+            queries.push(params);
+            if (params.EntityName === 'MJ_BizApps_Tasks: Task Links') {
                 return {
                     Success: true,
-                    Results: [],
-                    RowCount: 0,
-                    TotalRowCount: 0,
+                    Results: [
+                        // Invalid UUID must be ignored before interpolation
+                        { Entity: 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks', RecordID: "' OR 1=1 --" },
+                        // Self PR link already retrieved in first pass must not trigger a second PR query
+                        { Entity: 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks', RecordID: taskId },
+                        // Linked Issue + Linked Repository resolved in Phase 2
+                        { Entity: 'MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks', RecordID: linkedIssueId },
+                        { Entity: 'MJ_BizApps_Tasks_GitHub: Git Hub Repositories', RecordID: linkedRepoId },
+                    ],
+                    RowCount: 4,
+                    TotalRowCount: 4,
                     ExecutionTime: 1,
                     ErrorMessage: '',
                 };
+            }
+            if (params.EntityName === 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks') {
+                return {
+                    Success: true,
+                    Results: [
+                        {
+                            ID: taskId,
+                            Number: 99,
+                            Name: 'Self PR Task',
+                            State: 'open',
+                            IsDraft: false,
+                            HeadBranch: 'feat/tx',
+                            BaseBranch: 'next',
+                            Additions: 42,
+                            Deletions: 7,
+                            HtmlURL: 'https://github.com/MemberJunction/bizapps-tasks-github/pull/99',
+                        },
+                    ],
+                    RowCount: 1,
+                    TotalRowCount: 1,
+                    ExecutionTime: 1,
+                    ErrorMessage: '',
+                };
+            }
+            if (
+                params.EntityName === 'MJ_BizApps_Tasks_GitHub: Git Hub Issue Tasks' &&
+                params.ExtraFilter?.includes(linkedIssueId)
+            ) {
+                return {
+                    Success: true,
+                    Results: [
+                        {
+                            ID: linkedIssueId,
+                            Number: 12,
+                            Name: 'Linked Issue',
+                            State: 'open',
+                            Repository: 'MemberJunction/bizapps-tasks-github',
+                            Milestone: 'v6.3',
+                            HtmlURL: 'https://github.com/MemberJunction/bizapps-tasks-github/issues/12',
+                        },
+                    ],
+                    RowCount: 1,
+                    TotalRowCount: 1,
+                    ExecutionTime: 1,
+                    ErrorMessage: '',
+                };
+            }
+            if (params.EntityName === 'MJ_BizApps_Tasks_GitHub: Git Hub Repositories') {
+                return {
+                    Success: true,
+                    Results: [
+                        {
+                            ID: linkedRepoId,
+                            Owner: 'MemberJunction',
+                            Name: 'bizapps-tasks-github',
+                            DefaultBranch: 'next',
+                            IsTracked: true,
+                        },
+                    ],
+                    RowCount: 1,
+                    TotalRowCount: 1,
+                    ExecutionTime: 1,
+                    ErrorMessage: '',
+                };
+            }
+            return {
+                Success: true,
+                Results: [],
+                RowCount: 0,
+                TotalRowCount: 0,
+                ExecutionTime: 1,
+                ErrorMessage: '',
+            };
+        };
+
+        const mockProvider: Partial<IMetadataProvider & IRunViewProvider> = {
+            Entities: [],
+            RunView: vi.fn(async (params: RunViewParams): Promise<RunViewResult> => {
+                singleRunViewCalls.push(params);
+                return resolveView(params);
+            }),
+            RunViews: vi.fn(async (views: RunViewParams[]): Promise<RunViewResult[]> => {
+                batchRunViewsCalls.push(views);
+                return Promise.all(views.map((v) => resolveView(v)));
             }),
         };
 
@@ -277,6 +344,11 @@ describe('@mj-biz-apps/tasks-github-ng Form Registrations & Contributions', () =
 
         await panel.ngOnInit();
 
+        // Zero individual RunView calls — everything is batched via RunViews!
+        expect(singleRunViewCalls).toHaveLength(0);
+        // Phase 1 batch has Task Links + self PR + self Issue in a SINGLE RunViews call
+        expect(batchRunViewsCalls[0]).toHaveLength(3);
+
         const prQueries = queries.filter(
             (q) => q.EntityName === 'MJ_BizApps_Tasks_GitHub: Git Hub Pull Request Tasks',
         );
@@ -285,6 +357,15 @@ describe('@mj-biz-apps/tasks-github-ng Form Registrations & Contributions', () =
         expect(panel.LinkedPullRequests).toHaveLength(1);
         expect(panel.LinkedPullRequests[0]?.Number).toBe(99);
         expect(panel.LinkedPullRequests[0]?.BranchFlow).toBe('feat/tx → next');
+        expect(panel.LinkedIssues).toHaveLength(1);
+        expect(panel.LinkedIssues[0]?.Number).toBe(12);
+        expect(panel.LinkedRepositories).toHaveLength(1);
+        expect(panel.LinkedRepositories[0]?.FullName).toBe('MemberJunction/bizapps-tasks-github');
+
+        // Re-running ngOnInit reuses warm GitHubTasksEngineBase cache (zero new Git Hub Repositories queries!)
+        queries.length = 0;
+        await panel.ngOnInit();
+        expect(queries.filter((q) => q.EntityName === 'MJ_BizApps_Tasks_GitHub: Git Hub Repositories')).toHaveLength(0);
 
         // Reject invalid non-UUID Record.ID with zero queries
         queries.length = 0;
@@ -293,12 +374,15 @@ describe('@mj-biz-apps/tasks-github-ng Form Registrations & Contributions', () =
         expect(queries).toHaveLength(0);
     });
 
-    it('GitHubRepositoryOverviewPanel reuses loaded IssueTasks/PullRequestTasks collections and rejects invalid UUIDs', async () => {
+    it('GitHubRepositoryOverviewPanel reuses loaded IssueTasks/PullRequestTasks collections, batches count_only via single RunViews, and rejects invalid UUIDs', async () => {
         const repoId = '22222222-2222-4222-8222-222222222222';
         const queries: RunViewParams[] = [];
+        const singleRunViewCalls: RunViewParams[] = [];
+        const batchRunViewsCalls: RunViewParams[][] = [];
 
         const mockProvider: Partial<IRunViewProvider> = {
             RunView: vi.fn(async (params: RunViewParams): Promise<RunViewResult> => {
+                singleRunViewCalls.push(params);
                 queries.push(params);
                 return {
                     Success: true,
@@ -308,6 +392,18 @@ describe('@mj-biz-apps/tasks-github-ng Form Registrations & Contributions', () =
                     ExecutionTime: 1,
                     ErrorMessage: '',
                 };
+            }),
+            RunViews: vi.fn(async (views: RunViewParams[]): Promise<RunViewResult[]> => {
+                batchRunViewsCalls.push(views);
+                queries.push(...views);
+                return views.map(() => ({
+                    Success: true,
+                    Results: [],
+                    RowCount: 0,
+                    TotalRowCount: 4,
+                    ExecutionTime: 1,
+                    ErrorMessage: '',
+                }));
             }),
         };
 
@@ -349,9 +445,12 @@ describe('@mj-biz-apps/tasks-github-ng Form Registrations & Contributions', () =
         await panel.ngOnInit();
         expect(queries).toHaveLength(0);
 
-        // 3. Unloaded collections fall back to count_only queries with validated UUID
+        // 3. Unloaded collections fall back to ONE batched RunViews call of 2 count_only queries
         panel.Record = makeRepoRecord(repoId, [], [], false);
         await panel.ngOnInit();
+        expect(singleRunViewCalls).toHaveLength(0);
+        expect(batchRunViewsCalls).toHaveLength(1);
+        expect(batchRunViewsCalls[0]).toHaveLength(2);
         expect(queries).toHaveLength(2);
         expect(queries.every((q) => q.ResultType === 'count_only')).toBe(true);
         expect(panel.OpenIssueCount).toBe(4);

@@ -11,11 +11,12 @@ import type {
     mjBizAppsTasksTaskAssignmentEntity,
     mjBizAppsTasksTaskRoleEntity,
 } from '@mj-biz-apps/tasks-entities';
-import type {
-    mjBizAppsTasksGitHubGitHubIdentityEntity,
-    mjBizAppsTasksGitHubGitHubIssueTaskEntity,
-    mjBizAppsTasksGitHubGitHubPullRequestTaskEntity,
-    mjBizAppsTasksGitHubGitHubRepositoryEntity,
+import {
+    GitHubTasksEngineBase,
+    type mjBizAppsTasksGitHubGitHubIdentityEntity,
+    type mjBizAppsTasksGitHubGitHubIssueTaskEntity,
+    type mjBizAppsTasksGitHubGitHubPullRequestTaskEntity,
+    type mjBizAppsTasksGitHubGitHubRepositoryEntity,
 } from '@mj-biz-apps/tasks-github-entities';
 import {
     GITHUB_IDENTITIES_ENTITY,
@@ -234,6 +235,7 @@ function defaultPeopleAndIdentities(): Pick<MockGitHubFixtures, 'people' | 'iden
 
 describe('Chief of Staff GitHub Extensible Skills Actions', () => {
     afterEach(() => {
+        GitHubTasksEngineBase.Instance.ResetCaches();
         vi.restoreAllMocks();
     });
 
@@ -1188,6 +1190,66 @@ describe('Chief of Staff GitHub Extensible Skills Actions', () => {
                 expect(script).toContain('Get GitHub Reviews Waiting On Me');
                 expect(script).toContain('Get My GitHub Briefing');
             }
+        });
+    });
+
+    describe('Performance: GitHubTasksEngineBase caching & RunViews batching', () => {
+        it('batches People lookups into a single RunViews call and reuses warm GitHubTasksEngineBase cache across CoS action invocations', async () => {
+            const batchEntities: string[][] = [];
+            const singleEntities: string[] = [];
+
+            const resolveEntityRows = (req: RunViewParams): RunViewResult => {
+                switch (req.EntityName) {
+                    case PEOPLE_ENTITY:
+                        return makeSuccessViewResult(defaultPeopleAndIdentities().people ?? []);
+                    case GITHUB_IDENTITIES_ENTITY:
+                        return makeSuccessViewResult(defaultPeopleAndIdentities().identities ?? []);
+                    case TASK_ROLES_ENTITY:
+                        return makeSuccessViewResult([
+                            { ID: ROLE_PRIMARY_ID, Name: 'Primary' },
+                            { ID: ROLE_REVIEWER_ID, Name: 'Reviewer' },
+                        ]);
+                    case TASK_ASSIGNMENTS_ENTITY:
+                        return makeSuccessViewResult([]);
+                    case GITHUB_REPOSITORIES_ENTITY:
+                        return makeSuccessViewResult([
+                            { ID: REPO_MJ_ID, Owner: 'MemberJunction', Name: 'MJ', IsTracked: true },
+                        ]);
+                    case GITHUB_PR_TASKS_ENTITY:
+                    case GITHUB_ISSUE_TASKS_ENTITY:
+                    default:
+                        return makeSuccessViewResult([]);
+                }
+            };
+
+            vi.spyOn(RunView.prototype, 'RunView').mockImplementation((async (req: RunViewParams) => {
+                singleEntities.push(req.EntityName);
+                return resolveEntityRows(req);
+            }) as RunView['RunView']);
+            vi.spyOn(RunView.prototype, 'RunViews').mockImplementation((async (reqs: RunViewParams[]) => {
+                batchEntities.push(reqs.map((r) => r.EntityName));
+                return reqs.map((r) => resolveEntityRows(r));
+            }) as RunView['RunViews']);
+
+            const prsAction = new GetMyGitHubPRsAction();
+            const firstRes = await prsAction.Run(makeRunParams());
+            expect(firstRes.Success).toBe(true);
+
+            // People lookup ran via batched RunViews (never sequential RunView)
+            expect(singleEntities.filter((e) => e === PEOPLE_ENTITY)).toHaveLength(0);
+            expect(batchEntities.some((batch) => batch.every((e) => e === PEOPLE_ENTITY) && batch.length >= 2)).toBe(true);
+
+            // Second invocation reuses warm GitHubTasksEngineBase cache -> zero repeat repo/identity queries!
+            batchEntities.length = 0;
+            singleEntities.length = 0;
+
+            const briefingAction = new GetMyGitHubBriefingAction();
+            const secondRes = await briefingAction.Run(makeRunParams());
+            expect(secondRes.Success).toBe(true);
+
+            const allQueriedOnSecond = [...singleEntities, ...batchEntities.flat()];
+            expect(allQueriedOnSecond).not.toContain(GITHUB_REPOSITORIES_ENTITY);
+            expect(allQueriedOnSecond).not.toContain(GITHUB_IDENTITIES_ENTITY);
         });
     });
 });
