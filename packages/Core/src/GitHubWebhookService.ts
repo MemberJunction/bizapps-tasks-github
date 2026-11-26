@@ -4,17 +4,19 @@ import {
     IRunViewProvider,
     LogError,
     Metadata,
-    RunView,
     UserInfo,
 } from '@memberjunction/core';
-import { BaseSingleton, EscapeSQLString, GetGlobalObjectStore } from '@memberjunction/global';
-import type { mjBizAppsTasksGitHubGitHubRepositoryEntity } from '@mj-biz-apps/tasks-github-entities';
+import { BaseSingleton, GetGlobalObjectStore } from '@memberjunction/global';
+import {
+    GitHubTasksEngineBase,
+    type mjBizAppsTasksGitHubGitHubRepositoryEntity,
+} from '@mj-biz-apps/tasks-github-entities';
 import {
     GITHUB_REST_MAX_PER_PAGE,
     GitHubTasksLimitsResolver,
     type GitHubTasksLimitsOverride,
 } from './GitHubTasksLimits.js';
-import { GITHUB_REPOSITORIES_ENTITY, GitHubTaskSyncService } from './GitHubTaskSyncService.js';
+import { GitHubTaskSyncService } from './GitHubTaskSyncService.js';
 import { DEFAULT_GITHUB_API_BASE_URL, ResolveGitHubVaultAuth } from './GitHubVaultAuthResolver.js';
 import type {
     GitHubIssueStateReason,
@@ -556,23 +558,13 @@ export class GitHubWebhookService extends BaseSingleton<GitHubWebhookService> {
         }
 
         const md = params.provider ?? Metadata.Provider;
-        const rv = params.provider ? RunView.FromMetadataProvider(params.provider) : new RunView();
-
-        const repoRes = await rv.RunView<mjBizAppsTasksGitHubGitHubRepositoryEntity>(
-            {
-                EntityName: GITHUB_REPOSITORIES_ENTITY,
-                ExtraFilter:
-                    `Owner = '${EscapeSQLString(owner)}' AND Name = '${EscapeSQLString(repoName)}'`,
-                MaxRows: 1,
-                ResultType: 'entity_object',
-            },
-            params.contextUser,
-        );
-        if (!repoRes.Success) {
-            throw new Error(`Failed querying GitHubRepository for webhook '${owner}/${repoName}': ${repoRes.ErrorMessage}`);
+        const engine = GitHubTasksEngineBase.Instance;
+        await engine.EnsureLoaded(params.contextUser, params.provider);
+        if (engine.CanReadRepositories(params.contextUser, params.provider) && !engine.IsPropertyLoaded('_repositories')) {
+            throw new Error(`Failed querying GitHubRepository for webhook '${owner}/${repoName}': engine load failed`);
         }
 
-        const repository = repoRes.Results?.[0] ?? null;
+        const repository = engine.RepositoryByFullName(`${owner}/${repoName}`) ?? null;
         if (!repository || !repository.IsTracked) {
             this.recordDeliveryId(cleanDeliveryId);
             return {

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ActionParam, RunActionParams } from '@memberjunction/actions-base';
 import { LimitsConfigResolver, RunView, type RunViewParams, type RunViewResult, type UserInfo } from '@memberjunction/core';
+import { GitHubTasksEngineBase } from '@mj-biz-apps/tasks-github-entities';
 import {
     GITHUB_IDENTITIES_ENTITY,
     GITHUB_ISSUE_TASKS_ENTITY,
@@ -58,12 +59,14 @@ function makeSuccessViewResult<T>(rows: T[]): RunViewResult<T> {
 
 describe('GitHubCoSActions limits integration', () => {
     beforeEach(() => {
+        GitHubTasksEngineBase.Instance.ResetCaches();
         GitHubTasksLimitsResolver.Instance.ClearConfigLimits();
         LimitsConfigResolver.Instance.ClearMjConfigLimits();
     });
 
     afterEach(() => {
         vi.restoreAllMocks();
+        GitHubTasksEngineBase.Instance.ResetCaches();
         GitHubTasksLimitsResolver.Instance.ClearConfigLimits();
         LimitsConfigResolver.Instance.ClearMjConfigLimits();
     });

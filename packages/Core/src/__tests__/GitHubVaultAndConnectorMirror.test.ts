@@ -331,6 +331,7 @@ describe('GitHubVaultAuthResolver & ConnectorGitHubMirrorRepositoryFetcher', () 
     it('ConnectorGitHubMirrorRepositoryFetcher projects @memberjunction/connector-github mirrored issues & pull_requests with zero REST calls', async () => {
         const appliedFilters: Array<{ entityName: string; filter: string }> = [];
 
+        let mirrorBatchCalls = 0;
         const partialMirrorProvider: Partial<IMetadataProvider & IRunViewProvider> = {
             Entities: [
                 makeMockEntityInfo(ENTITY_ID_ISSUES, 'GitHub: Mirrored Issues', [
@@ -473,7 +474,16 @@ describe('GitHubVaultAuthResolver & ConnectorGitHubMirrorRepositoryFetcher', () 
                 }
                 return { Success: true, Results: [] } as RunViewResult;
             }) as IRunViewProvider['RunView'],
-            RunViews: async () => [],
+            RunViews: (async (views: Array<{ EntityName: string; ExtraFilter?: string }>): Promise<RunViewResult[]> => {
+                mirrorBatchCalls += 1;
+                const results: RunViewResult[] = [];
+                for (const v of views) {
+                    results.push(
+                        await (partialMirrorProvider.RunView as (p: { EntityName: string; ExtraFilter?: string }) => Promise<RunViewResult>)(v),
+                    );
+                }
+                return results;
+            }) as IRunViewProvider['RunViews'],
         };
         const mockProvider = partialMirrorProvider as IMetadataProvider & IRunViewProvider;
 
@@ -508,6 +518,9 @@ describe('GitHubVaultAuthResolver & ConnectorGitHubMirrorRepositoryFetcher', () 
             baseBranch: 'next',
             linkedIssueNumber: 42,
         });
+
+        // Both mirrored entity fetches (issues + pull_requests) collapsed into a single RunViews batch
+        expect(mirrorBatchCalls).toBe(1);
 
         // Verify verified destination column filters were pushed down cleanly
         expect(appliedFilters).toContainEqual({

@@ -3,16 +3,15 @@ import { ActionParam, ActionResultSimple, RunActionParams } from '@memberjunctio
 import { IMetadataProvider, IRunViewProvider, LogError, Metadata, RunView } from '@memberjunction/core';
 import { IsValidUUID, RegisterClass } from '@memberjunction/global';
 import type { mjBizAppsTasksTaskEntity } from '@mj-biz-apps/tasks-entities';
-import type {
-    mjBizAppsTasksGitHubGitHubIssueTaskEntity,
-    mjBizAppsTasksGitHubGitHubPullRequestTaskEntity,
-    mjBizAppsTasksGitHubGitHubRepositoryEntity,
+import {
+    GitHubTasksEngineBase,
+    type mjBizAppsTasksGitHubGitHubIssueTaskEntity,
+    type mjBizAppsTasksGitHubGitHubPullRequestTaskEntity,
 } from '@mj-biz-apps/tasks-github-entities';
 import {
     AssertValidUUID,
     GITHUB_ISSUE_TASKS_ENTITY,
     GITHUB_PR_TASKS_ENTITY,
-    GITHUB_REPOSITORIES_ENTITY,
     GitHubTaskInferenceService,
     GitHubTaskSyncService,
     GitHubWebhookService,
@@ -314,17 +313,11 @@ export class InferGitHubTaskFieldsAction extends BaseAction {
                 };
             }
 
-            const repoRes = await rv.RunView<mjBizAppsTasksGitHubGitHubRepositoryEntity>(
-                {
-                    EntityName: GITHUB_REPOSITORIES_ENTITY,
-                    ExtraFilter: `ID = '${AssertValidUUID(extRow.RepositoryID, 'RepositoryID')}'`,
-                    MaxRows: 1,
-                    ResultType: 'simple',
-                },
-                params.ContextUser,
-            );
-            if (!repoRes.Success) {
-                const errMsg = repoRes.ErrorMessage || `Failed to load repository '${extRow.RepositoryID}'`;
+            const cleanRepoId = AssertValidUUID(extRow.RepositoryID, 'RepositoryID');
+            const engine = GitHubTasksEngineBase.Instance;
+            await engine.EnsureLoaded(params.ContextUser, customProvider);
+            if (engine.CanReadRepositories(params.ContextUser, customProvider) && !engine.IsPropertyLoaded('_repositories')) {
+                const errMsg = `Failed to load repository '${extRow.RepositoryID}'`;
                 LogError(new Error(`[InferGitHubTaskFieldsAction] ${errMsg}`));
                 return {
                     Success: false,
@@ -332,7 +325,7 @@ export class InferGitHubTaskFieldsAction extends BaseAction {
                     Message: errMsg,
                 };
             }
-            const repo = repoRes.Results?.[0] ?? null;
+            const repo = engine.RepositoryById(cleanRepoId) ?? null;
             const repoFullName = repo ? `${repo.Owner}/${repo.Name}` : 'unknown/unknown';
 
             const infRes = await GitHubTaskInferenceService.Instance.InferTaskPlanningFields({

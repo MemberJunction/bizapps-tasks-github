@@ -10,6 +10,10 @@ import {
     type UserInfo,
 } from '@memberjunction/core';
 import {
+    GITHUB_REPOSITORIES_ENTITY_NAME,
+    GitHubTasksEngineBase,
+} from '@mj-biz-apps/tasks-github-entities';
+import {
     ClearGitHubInstallationTokenCache,
     DefaultGitHubRestLiveStateFetcher,
     DefaultGitHubRestRepositoryFetcher,
@@ -436,56 +440,68 @@ describe('GitHubTasksLimitsResolver consumer integration (Core)', () => {
             number: 1,
         });
 
+        GitHubTasksEngineBase.Instance.ResetCaches();
+        let engineLoadCalls = 0;
+        const resolveView = async (params: RunViewParams): Promise<RunViewResult> => ({
+            Success: true,
+            Results:
+                params.EntityName === GITHUB_REPOSITORIES_ENTITY_NAME
+                    ? [
+                          {
+                              ID: '99999999-9999-4999-8999-999999999999',
+                              Owner: 'MemberJunction',
+                              Name: 'MJ',
+                              IsTracked: true,
+                          },
+                      ]
+                    : [],
+            RowCount: params.EntityName === GITHUB_REPOSITORIES_ENTITY_NAME ? 1 : 0,
+            TotalRowCount: params.EntityName === GITHUB_REPOSITORIES_ENTITY_NAME ? 1 : 0,
+            ExecutionTime: 1,
+            ErrorMessage: '',
+            UserViewRunID: '',
+        });
+
         const fakeProvider = {
             Entities: [],
             EntityByName: () => undefined,
+            RunView: resolveView as IRunViewProvider['RunView'],
+            RunViews: (async (views: RunViewParams[]): Promise<RunViewResult[]> => {
+                engineLoadCalls += 1;
+                return Promise.all(views.map((v) => resolveView(v)));
+            }) as IRunViewProvider['RunViews'],
         } as Partial<IMetadataProvider & IRunViewProvider> as IMetadataProvider & IRunViewProvider;
 
-        vi.spyOn(RunView, 'FromMetadataProvider').mockImplementation(() => {
-            const rv = new RunView();
-            rv.RunView = (async (): Promise<RunViewResult> => ({
-                Success: true,
-                Results: [
-                    {
-                        ID: '99999999-9999-4999-8999-999999999999',
-                        Owner: 'MemberJunction',
-                        Name: 'MJ',
-                        IsTracked: true,
+        try {
+            for (const [idx, sha] of ['sha-1', 'sha-2', 'sha-3'].entries()) {
+                const checkPayload = JSON.stringify({
+                    action: 'completed',
+                    repository: { name: 'MJ', owner: { login: 'MemberJunction' } },
+                    check_run: {
+                        id: idx + 1,
+                        name: 'build',
+                        head_sha: sha,
+                        status: 'completed',
+                        conclusion: 'success',
+                        pull_requests: [{ number: 1, base: { repo: { full_name: 'MemberJunction/MJ' } } }],
                     },
-                ],
-                RowCount: 1,
-                TotalRowCount: 1,
-                ExecutionTime: 1,
-                ErrorMessage: '',
-                UserViewRunID: '',
-            })) as RunView['RunView'];
-            return rv;
-        });
+                });
+                await GitHubWebhookService.Instance.HandleWebhook({
+                    eventName: 'check_run',
+                    deliveryId: `check-del-${idx + 1}`,
+                    signatureHeader: sign(checkPayload),
+                    rawPayload: checkPayload,
+                    webhookSecret: secret,
+                    contextUser: TEST_USER,
+                    provider: fakeProvider,
+                });
+            }
 
-        for (const [idx, sha] of ['sha-1', 'sha-2', 'sha-3'].entries()) {
-            const checkPayload = JSON.stringify({
-                action: 'completed',
-                repository: { name: 'MJ', owner: { login: 'MemberJunction' } },
-                check_run: {
-                    id: idx + 1,
-                    name: 'build',
-                    head_sha: sha,
-                    status: 'completed',
-                    conclusion: 'success',
-                    pull_requests: [{ number: 1, base: { repo: { full_name: 'MemberJunction/MJ' } } }],
-                },
-            });
-            await GitHubWebhookService.Instance.HandleWebhook({
-                eventName: 'check_run',
-                deliveryId: `check-del-${idx + 1}`,
-                signatureHeader: sign(checkPayload),
-                rawPayload: checkPayload,
-                webhookSecret: secret,
-                contextUser: TEST_USER,
-                provider: fakeProvider,
-            });
+            expect(GitHubWebhookService.Instance.GetTrackedCheckShaCount()).toBe(2);
+            // All 3 webhook deliveries shared the single warm GitHubTasksEngineBase cache load
+            expect(engineLoadCalls).toBe(1);
+        } finally {
+            GitHubTasksEngineBase.Instance.ResetCaches();
         }
-
-        expect(GitHubWebhookService.Instance.GetTrackedCheckShaCount()).toBe(2);
     });
 });
