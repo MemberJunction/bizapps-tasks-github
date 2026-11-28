@@ -1092,12 +1092,26 @@ describe('Chief of Staff GitHub Extensible Skills Actions', () => {
             }
         });
 
-        it('grants GitHub skill to Chief of Staff with AllowMetadataSyncUpdate, Role=Briefing/ExposeToModel=false, and non-exposed operator actions', () => {
-            const skillPath = path.join(REPO_ROOT, 'metadata/skills/.github-tasks-skill.json');
-            const skills = JSON.parse(fs.readFileSync(skillPath, 'utf8')) as SyncSkillRecord[];
+        it('grants GitHub skill to Chief of Staff in metadata/chief-of-staff-skills with AllowMetadataSyncUpdate, Role=Briefing/ExposeToModel=false, zero sync blocks, and non-exposed operator actions', () => {
+            const appManifest = JSON.parse(
+                fs.readFileSync(path.join(REPO_ROOT, 'mj-app.json'), 'utf8'),
+            ) as { metadata?: { directory?: string } };
+            expect(appManifest.metadata?.directory).toBe('metadata');
+
+            const skillDirSync = JSON.parse(
+                fs.readFileSync(path.join(REPO_ROOT, 'metadata/chief-of-staff-skills/.mj-sync.json'), 'utf8'),
+            ) as { entity: string };
+            expect(skillDirSync.entity).toBe('MJ: AI Skills');
+
+            const skillPath = path.join(REPO_ROOT, 'metadata/chief-of-staff-skills/.github-tasks-skill.json');
+            const rawSkillJson = fs.readFileSync(skillPath, 'utf8');
+            expect(rawSkillJson).not.toContain('"sync"');
+            const skills = JSON.parse(rawSkillJson) as SyncSkillRecord[];
             expect(skills).toHaveLength(1);
 
             const skill = skills[0];
+            expect(IsValidUUID(skill.primaryKey.ID)).toBe(true);
+            expect(skill.primaryKey.ID).toBe('85258800-163B-4409-BA2F-2F3B8AF556C0');
             expect(skill.fields.Name).toBe('GitHub Tasks & Pull Requests');
             expect(skill.fields.Status).toBe('Active');
 
@@ -1105,8 +1119,28 @@ describe('Chief of Staff GitHub Extensible Skills Actions', () => {
                 (g) => g.fields.AgentID === '@lookup:MJ: AI Agents.Name=Chief of Staff',
             );
             expect(cosGrant).toBeDefined();
+            expect(IsValidUUID(cosGrant!.primaryKey.ID)).toBe(true);
             expect(cosGrant!.fields.Status).toBe('Active');
             expect(cosGrant!.fields.AllowMetadataSyncUpdate).toBe(true);
+
+            // Personal Chief of Staff instances (e.g. BaseAgentID = Chief of Staff) inherit active template skills
+            const resolveInheritedSkills = (
+                templateGrants: Array<{ agentLookup: string; skillId: string; status: string }>,
+                personalInstance: { BaseAgentLookup: string },
+            ): string[] =>
+                templateGrants
+                    .filter((g) => g.status === 'Active' && g.agentLookup === personalInstance.BaseAgentLookup)
+                    .map((g) => g.skillId);
+
+            const inherited = resolveInheritedSkills(
+                skill.relatedEntities['MJ: AI Agent Skills'].map((g) => ({
+                    agentLookup: g.fields.AgentID,
+                    skillId: skill.primaryKey.ID,
+                    status: g.fields.Status,
+                })),
+                { BaseAgentLookup: '@lookup:MJ: AI Agents.Name=Chief of Staff' },
+            );
+            expect(inherited).toContain(skill.primaryKey.ID);
 
             const bindings = skill.relatedEntities['MJ: AI Skill Actions'];
             const findBinding = (actionName: string) =>
@@ -1128,12 +1162,152 @@ describe('Chief of Staff GitHub Extensible Skills Actions', () => {
             expect(findBinding('Sync GitHub Repository Tasks')?.fields.ExposeToModel).toBe(false);
             expect(findBinding('Infer GitHub Task Planning Fields')?.fields.ExposeToModel).toBe(false);
 
-            const templatePath = path.join(REPO_ROOT, 'metadata/skills/templates/github-tasks.skill.md');
+            const templatePath = path.join(REPO_ROOT, 'metadata/chief-of-staff-skills/templates/github-tasks.skill.md');
             const templateContent = fs.readFileSync(templatePath, 'utf8');
             expect(templateContent).toContain('Get My GitHub PRs');
             expect(templateContent).toContain('Get GitHub Reviews Waiting On Me');
             expect(templateContent).toContain('Get My GitHub Briefing');
             expect(templateContent).toContain('PRs Waiting On You');
+
+            // Verify bound CoS actions contain zero raw SQL execution
+            const actionsSource = fs.readFileSync(
+                path.join(REPO_ROOT, 'packages/Actions/src/GitHubCoSActions.ts'),
+                'utf8',
+            );
+            expect(actionsSource).not.toMatch(/\bExecuteSQL\b|\bsql\.query\b|\brequest\.query\b/);
+        });
+
+        it('enforces two-user RLS isolation so User A and User B receive strictly different PRs and review queues from the same skill', async () => {
+            const USER_BOB_ID = '10000000-0000-4000-8000-000000000002';
+            const userAlice = makeUser(USER_ALICE_ID, 'alice@example.com');
+            const userBob = makeUser(USER_BOB_ID, 'bob@example.com');
+            userBob.Name = 'Bob Reviewer';
+
+            const allPeople: MockPersonRow[] = [
+                {
+                    ID: PERSON_ALICE_ID,
+                    FirstName: 'Alice',
+                    LastName: 'Developer',
+                    DisplayName: 'Alice Developer',
+                    Email: 'alice@example.com',
+                    LinkedUserID: USER_ALICE_ID,
+                    Status: 'Active',
+                },
+                {
+                    ID: PERSON_BOB_ID,
+                    FirstName: 'Bob',
+                    LastName: 'Reviewer',
+                    DisplayName: 'Bob Reviewer',
+                    Email: 'bob@example.com',
+                    LinkedUserID: USER_BOB_ID,
+                    Status: 'Active',
+                },
+            ];
+
+            const allIdentities: Partial<mjBizAppsTasksGitHubGitHubIdentityEntity>[] = [
+                { ID: '70000000-0000-4000-8000-000000000001', GitHubLogin: 'AliceDev', PersonID: PERSON_ALICE_ID, IsActive: true },
+                { ID: '70000000-0000-4000-8000-000000000002', GitHubLogin: 'BobRev', PersonID: PERSON_BOB_ID, IsActive: true },
+            ];
+
+            const now = Date.now();
+            // Simulate tenant/repo RLS: Alice can only access REPO_MJ_ID; Bob can only access REPO_TASKS_ID
+            const allowedRepoByUser = new Map<string, Set<string>>([
+                [USER_ALICE_ID, new Set([REPO_MJ_ID])],
+                [USER_BOB_ID, new Set([REPO_TASKS_ID])],
+            ]);
+
+            const allPrs: Partial<mjBizAppsTasksGitHubGitHubPullRequestTaskEntity>[] = [
+                {
+                    ID: PR_TASK_1,
+                    Name: 'Alice secret MJ PR',
+                    RepositoryID: REPO_MJ_ID,
+                    PRNumber: 101,
+                    State: 'open',
+                    IsDraft: false,
+                    AuthorGitHubLogin: 'AliceDev',
+                    ChecksStatus: 'Passing',
+                    ReviewDecision: 'APPROVED',
+                    HtmlURL: 'https://github.com/MemberJunction/MJ/pull/101',
+                    __mj_CreatedAt: new Date(now - 36 * HOUR_MS),
+                    __mj_UpdatedAt: new Date(now - 2 * HOUR_MS),
+                },
+                {
+                    ID: PR_TASK_2,
+                    Name: 'Bob confidential Tasks PR',
+                    RepositoryID: REPO_TASKS_ID,
+                    PRNumber: 202,
+                    State: 'open',
+                    IsDraft: false,
+                    AuthorGitHubLogin: 'BobRev',
+                    ChecksStatus: 'Failing',
+                    ReviewDecision: 'CHANGES_REQUESTED',
+                    HtmlURL: 'https://github.com/MemberJunction/bizapps-tasks/pull/202',
+                    __mj_CreatedAt: new Date(now - 48 * HOUR_MS),
+                    __mj_UpdatedAt: new Date(now - 1 * HOUR_MS),
+                },
+            ];
+
+            const allAssignments: Partial<mjBizAppsTasksTaskAssignmentEntity>[] = [
+                { ID: '80000000-0000-4000-8000-000000000001', TaskID: PR_TASK_1, PersonID: PERSON_ALICE_ID, TaskRoleID: ROLE_PRIMARY_ID, Status: 'Active' },
+                { ID: '80000000-0000-4000-8000-000000000002', TaskID: PR_TASK_2, PersonID: PERSON_BOB_ID, TaskRoleID: ROLE_PRIMARY_ID, Status: 'Active' },
+            ];
+
+            const resolveRlsRows = (req: RunViewParams, caller?: UserInfo): RunViewResult => {
+                const callerId = caller?.ID ?? '';
+                const allowedRepos = allowedRepoByUser.get(callerId) ?? new Set<string>();
+                switch (req.EntityName) {
+                    case PEOPLE_ENTITY:
+                        return makeSuccessViewResult(allPeople.filter((p) => p.LinkedUserID === callerId));
+                    case GITHUB_IDENTITIES_ENTITY:
+                        return makeSuccessViewResult(allIdentities);
+                    case TASK_ROLES_ENTITY:
+                        return makeSuccessViewResult([
+                            { ID: ROLE_PRIMARY_ID, Name: 'Primary' },
+                            { ID: ROLE_REVIEWER_ID, Name: 'Reviewer' },
+                        ]);
+                    case TASK_ASSIGNMENTS_ENTITY:
+                        return makeSuccessViewResult(
+                            allAssignments.filter((a) => {
+                                const pr = allPrs.find((p) => p.ID === a.TaskID);
+                                return pr?.RepositoryID != null && allowedRepos.has(pr.RepositoryID);
+                            }),
+                        );
+                    case GITHUB_REPOSITORIES_ENTITY:
+                        return makeSuccessViewResult([
+                            { ID: REPO_MJ_ID, Owner: 'MemberJunction', Name: 'MJ' },
+                            { ID: REPO_TASKS_ID, Owner: 'MemberJunction', Name: 'bizapps-tasks' },
+                        ]);
+                    case GITHUB_PR_TASKS_ENTITY:
+                        return makeSuccessViewResult(
+                            allPrs.filter((pr) => pr.RepositoryID != null && allowedRepos.has(pr.RepositoryID)),
+                        );
+                    default:
+                        return makeSuccessViewResult([]);
+                }
+            };
+
+            vi.spyOn(RunView.prototype, 'RunView').mockImplementation((async (req: RunViewParams, caller?: UserInfo) =>
+                resolveRlsRows(req, caller)) as RunView['RunView']);
+            vi.spyOn(RunView.prototype, 'RunViews').mockImplementation((async (reqs: RunViewParams[], caller?: UserInfo) =>
+                reqs.map((r) => resolveRlsRows(r, caller))) as RunView['RunViews']);
+
+            const prsAction = new GetMyGitHubPRsAction();
+
+            const aliceParams = makeRunParams([], userAlice);
+            const aliceRes = await prsAction.Run(aliceParams);
+            expect(aliceRes.Success).toBe(true);
+            const alicePayload = JSON.parse(String(getOutputParam(aliceParams, 'PullRequestsJSON'))) as PRsActionPayload;
+            expect(alicePayload.PersonID).toBe(PERSON_ALICE_ID);
+            expect(alicePayload.PullRequests.map((p) => p.PRNumber)).toEqual([101]);
+            expect(alicePayload.PullRequests.map((p) => p.Title)).not.toContain('Bob confidential Tasks PR');
+
+            const bobParams = makeRunParams([], userBob);
+            const bobRes = await prsAction.Run(bobParams);
+            expect(bobRes.Success).toBe(true);
+            const bobPayload = JSON.parse(String(getOutputParam(bobParams, 'PullRequestsJSON'))) as PRsActionPayload;
+            expect(bobPayload.PersonID).toBe(PERSON_BOB_ID);
+            expect(bobPayload.PullRequests.map((p) => p.PRNumber)).toEqual([202]);
+            expect(bobPayload.PullRequests.map((p) => p.Title)).not.toContain('Alice secret MJ PR');
         });
 
         it('registers the PRs Waiting On You rhythm template in metadata and cleans it up in both teardown scripts', () => {
@@ -1142,7 +1316,7 @@ describe('Chief of Staff GitHub Extensible Skills Actions', () => {
             ) as { directoryOrder: string[] };
             expect(rootSync.directoryOrder).toContain('rhythm-templates');
             expect(rootSync.directoryOrder.indexOf('rhythm-templates')).toBeGreaterThan(
-                rootSync.directoryOrder.indexOf('skills'),
+                rootSync.directoryOrder.indexOf('chief-of-staff-skills'),
             );
 
             const rhythmSync = JSON.parse(

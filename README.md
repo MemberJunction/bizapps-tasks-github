@@ -189,7 +189,7 @@ Instead of fragile bidirectional conflict resolution, every field has a single a
 
 ### Chief of Staff Skill
 
-Ships the **`"GitHub Tasks & Pull Requests"`** skill in `metadata/skills`, equipping `Chief of Staff` and workspace co-agents to combine local Work Bus queries with MemberJunction's core `GitHub - *` actions (`GitHub - Get Pull Request Context`, `GitHub - Create Or Update Issue`, `GitHub - Submit Pull Request Review`, etc.).
+Ships the **`"GitHub Tasks & Pull Requests"`** skill in `metadata/chief-of-staff-skills`, equipping `Chief of Staff` and workspace co-agents to combine local Work Bus queries with MemberJunction's core `GitHub - *` actions (`GitHub - Get Pull Request Context`, `GitHub - Create Or Update Issue`, `GitHub - Submit Pull Request Review`, etc.).
 
 ---
 
